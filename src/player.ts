@@ -10,10 +10,11 @@ export interface KeyBindings {
 export class Player extends Entity {
   public trail: p5.Vector[];
   public playerNumber: number;
+  public displayName: string;
   private trailFillColor: string;
   private trailStrokeColor: string;
   private moveTimer: number;
-  private nextDirection: p5.Vector;
+  protected nextDirection: p5.Vector;
   private keyBindings: KeyBindings;
 
   public lives: number;
@@ -52,6 +53,7 @@ export class Player extends Entity {
       createVector(this.position.x - size.x * 8, this.position.y),
     ];
     this.playerNumber = playerNumber;
+    this.displayName = `PLAYER ${playerNumber}`;
     this.trailFillColor = trailFillColor;
     this.trailStrokeColor = trailStrokeColor;
     this.moveTimer = 0;
@@ -69,7 +71,7 @@ export class Player extends Entity {
     this.canPassThroughObstacles = false;
   }
 
-  private handleInput(): void {
+  protected handleInput(): void {
     if (keyIsDown(this.keyBindings.UP) && this.direction.y === 0) {
       this.nextDirection = createVector(0, -32);
     } else if (keyIsDown(this.keyBindings.DOWN) && this.direction.y === 0) {
