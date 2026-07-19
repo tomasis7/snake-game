@@ -13,19 +13,28 @@ function fakeStorage(): Pick<Storage, "getItem" | "setItem"> & {
 }
 
 describe("Progress", () => {
-  it("accumulates level scores into run totals", () => {
+  it("sums the latest score per level into run totals", () => {
     const p = new Progress(fakeStorage());
     p.startRun("onePlayer");
-    p.addLevelScores(100, 80);
-    p.addLevelScores(50, 120);
+    p.setLevelScores(1, 100, 80);
+    p.setLevelScores(2, 50, 120);
     expect(p.getTotal(1)).toBe(150);
     expect(p.getTotal(2)).toBe(200);
+  });
+
+  it("overwrites a level's scores on retry instead of double-counting", () => {
+    const p = new Progress(fakeStorage());
+    p.startRun("onePlayer");
+    p.setLevelScores(1, 100, 80);
+    p.setLevelScores(1, 60, 90);
+    expect(p.getTotal(1)).toBe(60);
+    expect(p.getTotal(2)).toBe(90);
   });
 
   it("resets totals and level on startRun", () => {
     const p = new Progress(fakeStorage());
     p.startRun("onePlayer");
-    p.addLevelScores(100, 80);
+    p.setLevelScores(1, 100, 80);
     p.startRun("twoPlayer");
     expect(p.getTotal(1)).toBe(0);
     expect(p.currentLevel).toBe(1);
@@ -44,12 +53,12 @@ describe("Progress", () => {
     const storage = fakeStorage();
     const p = new Progress(storage);
     p.startRun("onePlayer");
-    p.addLevelScores(300, 10);
+    p.setLevelScores(1, 300, 10);
     expect(p.finishRun()).toEqual({ best: 300, isNewBest: true });
 
     const p2 = new Progress(storage);
     p2.startRun("onePlayer");
-    p2.addLevelScores(200, 10);
+    p2.setLevelScores(1, 200, 10);
     expect(p2.finishRun()).toEqual({ best: 300, isNewBest: false });
   });
 });

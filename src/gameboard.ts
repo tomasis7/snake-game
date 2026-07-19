@@ -83,7 +83,7 @@ export class GameBoard extends GameScreen {
 
     const score1 = this.scoreManager.getScore(1);
     const score2 = this.scoreManager.getScore(2);
-    game.progress.addLevelScores(score1, score2);
+    game.progress.setLevelScores(this.levelNumber, score1, score2);
     game.changeScreen(
       new ResultsScreen(this.levelNumber, this.mode, score1, score2)
     );

@@ -13,7 +13,7 @@ const noStorage: Pick<Storage, "getItem" | "setItem"> = {
 export class Progress {
   public mode: GameMode = "onePlayer";
   public currentLevel: number = 1;
-  private totals: Map<number, number> = new Map();
+  private levelScores: Map<number, [number, number]> = new Map();
   private storage: Pick<Storage, "getItem" | "setItem">;
 
   constructor(storage?: Pick<Storage, "getItem" | "setItem">) {
@@ -24,16 +24,19 @@ export class Progress {
   startRun(mode: GameMode): void {
     this.mode = mode;
     this.currentLevel = 1;
-    this.totals.clear();
+    this.levelScores.clear();
   }
 
-  addLevelScores(score1: number, score2: number): void {
-    this.totals.set(1, (this.totals.get(1) ?? 0) + score1);
-    this.totals.set(2, (this.totals.get(2) ?? 0) + score2);
+  setLevelScores(level: number, score1: number, score2: number): void {
+    this.levelScores.set(level, [score1, score2]);
   }
 
   getTotal(playerNumber: number): number {
-    return this.totals.get(playerNumber) ?? 0;
+    let total = 0;
+    for (const [score1, score2] of this.levelScores.values()) {
+      total += playerNumber === 1 ? score1 : score2;
+    }
+    return total;
   }
 
   isLastLevel(): boolean {
