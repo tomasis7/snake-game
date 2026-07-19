@@ -1,109 +1,68 @@
 import { GameScreen } from "./gamescreen";
 import { Button } from "./button";
-import { LevelFactory } from "./levelfactory";
-import { CountDown } from "./countdown";
-import { GameBoard } from "./gameboard";
 import { InteractionScreen } from "./interactionscreen";
+import { GameMode } from "./progress";
 
 export class StartMenu extends GameScreen {
   startGameButton: Button;
-  selectEasyMode: Button;
-  selectMediumMode: Button;
-  selectHardMode: Button;
-  selectedButton: Button | null = null;
-  interactionScreen: Button;
-  levelFactory: LevelFactory;
-  selectedDifficulty: "easy" | "medium" | "hard" | null = null;
+  onePlayerButton: Button;
+  twoPlayerButton: Button;
+  howToPlayButton: Button;
+  selectedMode: GameMode = "onePlayer";
 
-  constructor(button: Button) {
+  constructor() {
     super();
-    this.startGameButton = button;
-
-    this.selectEasyMode = new Button(
-      "Easy",
-      createVector(width / 2, height / 2 - 125),
+    this.startGameButton = new Button(
+      "Start Game",
+      createVector(width / 2, height / 2 + 125),
       "#515151",
-      createVector(220, 50),
+      createVector(350, 50),
       "#45FF8C"
     );
 
-    this.selectMediumMode = new Button(
-      "Medium",
-      createVector(width / 2, height / 2 - 50),
+    this.onePlayerButton = new Button(
+      "1 Player vs Robot",
+      createVector(width / 2, height / 2 - 100),
       "#515151",
-      createVector(220, 50),
-      "#FDD03C"
+      createVector(420, 50),
+      "#00FFFF"
     );
 
-    this.selectHardMode = new Button(
-      "Hard",
-      createVector(width / 2, height / 2 + 25),
+    this.twoPlayerButton = new Button(
+      "2 Players",
+      createVector(width / 2, height / 2 - 25),
       "#515151",
-      createVector(220, 50),
-      "#FF5F62"
+      createVector(420, 50),
+      "#FF00FF"
     );
 
-    this.interactionScreen = new Button(
+    this.howToPlayButton = new Button(
       "How to play",
       createVector(width / 2, height - 100),
       "#515151",
       createVector(380, 50),
       "#FFFFFF"
     );
-
-    this.levelFactory = new LevelFactory();
   }
 
   update(): void {
+    if (this.onePlayerButton.isClicked()) {
+      this.selectedMode = "onePlayer";
+    }
+
+    if (this.twoPlayerButton.isClicked()) {
+      this.selectedMode = "twoPlayer";
+    }
+
     if (this.startGameButton.isClicked()) {
-      let selectedLevel: number[][];
-
-      switch (this.selectedDifficulty || "easy") {
-        case "easy":
-          selectedLevel = this.levelFactory.level1;
-          break;
-        case "medium":
-          selectedLevel = this.levelFactory.level2;
-          break;
-        case "hard":
-          selectedLevel = this.levelFactory.level3;
-          break;
-        default:
-          selectedLevel = this.levelFactory.level1;
-      }
-
       userStartAudio();
       if (!music.backgroundMusic.isPlaying()) {
         music.backgroundMusic.loop();
       }
-
-      game.changeScreen(
-        new CountDown(selectedLevel, () => {
-          game.changeScreen(new GameBoard(selectedLevel));
-        })
-      );
+      game.startRun(this.selectedMode);
     }
 
-    if (this.selectEasyMode.isClicked()) {
-      console.log("Easy mode selected");
-      this.selectedButton = this.selectEasyMode;
-      this.selectedDifficulty = "easy";
-    }
-
-    if (this.selectMediumMode.isClicked()) {
-      console.log("Medium mode selected");
-      this.selectedButton = this.selectMediumMode;
-      this.selectedDifficulty = "medium";
-    }
-
-    if (this.selectHardMode.isClicked()) {
-      console.log("Hard mode selected");
-      this.selectedButton = this.selectHardMode;
-      this.selectedDifficulty = "hard";
-    }
-
-    if (this.interactionScreen.isClicked()) {
-      console.log("Interaction selected");
+    if (this.howToPlayButton.isClicked()) {
       game.changeScreen(new InteractionScreen());
     }
   }
@@ -118,29 +77,19 @@ export class StartMenu extends GameScreen {
     textSize(42);
     text("Furious Snake", width / 2, height / 4 - 100);
 
-    this.selectEasyMode.backgroundColor =
-      this.selectedButton === this.selectEasyMode ? "white" : "#515151";
-
-    this.selectMediumMode.backgroundColor =
-      this.selectedButton === this.selectMediumMode ? "white" : "#515151";
-
-    this.selectHardMode.backgroundColor =
-      this.selectedButton === this.selectHardMode ? "white" : "#515151";
+    this.onePlayerButton.backgroundColor =
+      this.selectedMode === "onePlayer" ? "white" : "#515151";
+    this.twoPlayerButton.backgroundColor =
+      this.selectedMode === "twoPlayer" ? "white" : "#515151";
 
     fill("#45FF8C");
     textSize(32);
-    text("SELECT DIFFICULTY", width / 2, height / 4);
+    text("SELECT MODE", width / 2, height / 4);
 
     this.startGameButton.draw();
-    this.selectEasyMode.draw();
-    this.selectMediumMode.draw();
-    this.selectHardMode.draw();
-    this.interactionScreen.draw();
+    this.onePlayerButton.draw();
+    this.twoPlayerButton.draw();
+    this.howToPlayButton.draw();
     pop();
-  }
-
-  newGame(): void {
-    console.log("Starting a new game...");
-    game.changeScreen(new StartMenu(this.startGameButton));
   }
 }

@@ -1,5 +1,4 @@
 import { GameScreen } from "./gamescreen";
-import { GameBoard } from "./gameboard";
 
 export class CountDown extends GameScreen {
   private countdownValue: number;
@@ -7,32 +6,28 @@ export class CountDown extends GameScreen {
   private readonly countdownDuration: number = 3;
   private isComplete: boolean;
   private callback: () => void;
-  private level: number[][];
 
-  constructor(level: number[][], callback: () => void) {
+  constructor(callback: () => void) {
     super();
     this.countdownValue = this.countdownDuration;
     this.lastUpdateTime = Date.now();
     this.isComplete = false;
     this.callback = callback;
-    this.level = level;
   }
 
   update(): void {
     const currentTime = Date.now();
-    const deltaTime = (currentTime - this.lastUpdateTime) / 1000;
+    const deltaSeconds = (currentTime - this.lastUpdateTime) / 1000;
+    this.lastUpdateTime = currentTime;
 
-    if (this.countdownValue > 0) {
-      this.countdownValue -= deltaTime;
+    if (!this.isComplete && this.countdownValue > 0) {
+      this.countdownValue -= deltaSeconds;
       if (this.countdownValue <= 0) {
         this.countdownValue = 0;
         this.isComplete = true;
         this.callback();
-
-        game.changeScreen(new GameBoard(this.level));
       }
     }
-    this.lastUpdateTime = currentTime;
   }
 
   draw(): void {

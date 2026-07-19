@@ -6,6 +6,7 @@ import { CollisionManager } from "./collisionmanager";
 import { ScoreManager } from "./scoreManager";
 import { Ghost } from "./ghost";
 import { Heart } from "./heart";
+import { GameMode } from "./progress";
 
 export class GameBoard extends GameScreen {
   private entities: Entity[];
@@ -16,9 +17,13 @@ export class GameBoard extends GameScreen {
 
   private cameraOffset: number = 0;
   private scrollSpeed: number = 1.5;
+  private levelNumber: number;
+  private mode: GameMode;
 
-  constructor(level: number[][]) {
+  constructor(levelNumber: number, mode: GameMode) {
     super();
+    this.levelNumber = levelNumber;
+    this.mode = mode;
     this.players = [
       new Player(createVector(128, 192), 1, "#00FFFF", "green", {
         UP: UP_ARROW,
@@ -35,7 +40,9 @@ export class GameBoard extends GameScreen {
     ];
 
     this.levelFactory = new LevelFactory();
-    this.entities = this.levelFactory.createEntitiesForLevel(level);
+    const config = this.levelFactory.getLevelConfig(levelNumber);
+    this.scrollSpeed = config.scrollSpeed;
+    this.entities = this.levelFactory.createEntitiesForLevel(config.layout);
 
     this.scoreManager = new ScoreManager(this.players);
     this.collisionManager = new CollisionManager(

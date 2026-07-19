@@ -1,32 +1,34 @@
 import { GameScreen } from "./gamescreen";
 import { StartMenu } from "./startmenu";
-import { Button } from "./button";
 import { GameBoard } from "./gameboard";
+import { CountDown } from "./countdown";
+import { Progress, GameMode } from "./progress";
 
 export class Game {
   private activeScreen: GameScreen[];
+  public progress: Progress;
 
   constructor() {
-    this.activeScreen = [
-      new StartMenu(
-        new Button(
-          "Start Game",
-          createVector(width / 2, height / 2 + 125),
-          "#515151",
-          createVector(350, 50),
-          "#45FF8C"
-        )
-      ),
-    ];
+    this.progress = new Progress();
+    this.activeScreen = [new StartMenu()];
   }
 
   changeScreen(newScreen: GameScreen): void {
     this.activeScreen = [newScreen];
   }
 
-  newGame(): void {
-    const defaultLevel: number[][] = [[1]];
-    this.changeScreen(new GameBoard(defaultLevel));
+  startRun(mode: GameMode): void {
+    this.progress.startRun(mode);
+    this.startLevel(1);
+  }
+
+  startLevel(levelNumber: number): void {
+    this.progress.currentLevel = levelNumber;
+    this.changeScreen(
+      new CountDown(() => {
+        this.changeScreen(new GameBoard(levelNumber, this.progress.mode));
+      })
+    );
   }
 
   public update(): void {
