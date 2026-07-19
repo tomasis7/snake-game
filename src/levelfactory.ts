@@ -7,11 +7,18 @@ import { Ghost } from "./ghost";
 import { TetrisBlock } from "./tetrisBlocks";
 import { WinBlock } from "./winBlock";
 
+export interface LevelConfig {
+  layout: number[][];
+  scrollSpeed: number;
+  robotMistakeChance: number;
+}
+
 export class LevelFactory {
   public gridSize: number = 32;
   public level1: number[][];
   public level2: number[][];
   public level3: number[][];
+  public static readonly LEVEL_COUNT = 3;
 
   constructor() {
     // 0 = inget
@@ -1035,5 +1042,15 @@ export class LevelFactory {
     }
 
     return entities;
+  }
+
+  public getLevelConfig(levelNumber: number): LevelConfig {
+    const configs: LevelConfig[] = [
+      { layout: this.level1, scrollSpeed: 1.5, robotMistakeChance: 0.25 },
+      { layout: this.level2, scrollSpeed: 2.0, robotMistakeChance: 0.1 },
+      { layout: this.level3, scrollSpeed: 2.5, robotMistakeChance: 0 },
+    ];
+    const index = Math.min(Math.max(levelNumber, 1), LevelFactory.LEVEL_COUNT);
+    return configs[index - 1];
   }
 }
