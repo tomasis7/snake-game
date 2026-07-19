@@ -80,7 +80,12 @@ export class RobotPlayer extends Player {
         ? toGrid(rivalTrail[0].x, rivalTrail[0].y)
         : undefined;
 
-    const next = decideDirection(world, head, currentDir, pickups, rivalHead);
+    // Survival mode: falling behind the camera leaves no room to dodge —
+    // stop chasing pickups and push right until clear of the left edge.
+    const chasing =
+      this.trail[0].x - this.context.cameraOffset >= 200 ? pickups : [];
+
+    const next = decideDirection(world, head, currentDir, chasing, rivalHead);
     this.nextDirection = createVector(next.dx * CELL, next.dy * CELL);
   }
 
