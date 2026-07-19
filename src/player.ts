@@ -14,6 +14,7 @@ export class Player extends Entity {
   private trailFillColor: string;
   private trailStrokeColor: string;
   private moveTimer: number;
+  private pendingGrowth: number;
   protected nextDirection: p5.Vector;
   private keyBindings: KeyBindings;
 
@@ -29,6 +30,11 @@ export class Player extends Entity {
 
   getPlayerNumber(): number {
     return this.playerNumber;
+  }
+
+  // Queues N segments of growth; the trail keeps its tail on the next N moves.
+  public grow(segments: number = 1): void {
+    this.pendingGrowth += segments;
   }
 
   constructor(
@@ -57,6 +63,7 @@ export class Player extends Entity {
     this.trailFillColor = trailFillColor;
     this.trailStrokeColor = trailStrokeColor;
     this.moveTimer = 0;
+    this.pendingGrowth = 0;
     this.direction = createVector(32, 0);
     this.nextDirection = this.direction.copy();
     this.keyBindings = keyBindings;
@@ -98,13 +105,23 @@ export class Player extends Entity {
         head.y + this.direction.y
       );
       this.trail.unshift(newHead);
-      this.trail.pop();
+      if (this.pendingGrowth > 0) {
+        this.pendingGrowth--;
+      } else {
+        this.trail.pop();
+      }
     }
 
     this.handleInput();
   }
 
   draw(): void {
+    // Blink while the post-hit cooldown is running so damage reads clearly.
+    const sinceHit = Date.now() - this.lastCollisionTime;
+    if (sinceHit < this.collisionCooldown && Math.floor(sinceHit / 80) % 2 === 0) {
+      return;
+    }
+
     push();
     strokeWeight(0);
 
@@ -154,8 +171,38 @@ export class Player extends Entity {
       drawingContext.shadowBlur = 0;
       drawingContext.shadowOffsetX = 0;
       drawingContext.shadowOffsetY = 0;
+
+      // After the shadow is cleared, so the eyes stay crisp.
+      if (i === 0) {
+        this.drawEyes(position, diameter);
+      }
     }
 
+    pop();
+  }
+
+  // Two pixel eyes on the head, set square to the direction of travel.
+  private drawEyes(head: p5.Vector, diameter: number): void {
+    const forwardX = Math.sign(this.direction.x);
+    const forwardY = Math.sign(this.direction.y);
+    // Perpendicular to travel, so the eyes sit side by side.
+    const sideX = forwardY;
+    const sideY = forwardX;
+    const eye = diameter * 0.16;
+    const forwardOffset = diameter * 0.2;
+    const sideOffset = diameter * 0.2;
+
+    push();
+    noStroke();
+    rectMode(CENTER);
+    for (const sign of [1, -1]) {
+      const x = head.x + forwardX * forwardOffset + sideX * sideOffset * sign;
+      const y = head.y + forwardY * forwardOffset + sideY * sideOffset * sign;
+      fill("#ffffff");
+      rect(x, y, eye * 2, eye * 2);
+      fill("#101820");
+      rect(x + forwardX * eye * 0.4, y + forwardY * eye * 0.4, eye, eye);
+    }
     pop();
   }
 
