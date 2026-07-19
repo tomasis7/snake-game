@@ -26,6 +26,8 @@ const TEXT_LIFE_MS = 1200;
 const SHAKE_DURATION_MS = 350;
 const FLASH_DURATION_MS = 250;
 const GRAVITY = 0.0006;
+const MAX_PARTICLES = 240;
+const MAX_TEXTS = 12;
 
 export class Effects {
   private particles: Particle[] = [];
@@ -64,6 +66,9 @@ export class Effects {
         size: 3 + Math.random() * 3,
       });
     }
+    if (this.particles.length > MAX_PARTICLES) {
+      this.particles.splice(0, this.particles.length - MAX_PARTICLES);
+    }
   }
 
   shake(intensity: number): void {
@@ -79,6 +84,9 @@ export class Effects {
 
   floatText(x: number, y: number, text: string, color: string): void {
     this.texts.push({ x, y, text, color, life: TEXT_LIFE_MS, maxLife: TEXT_LIFE_MS });
+    if (this.texts.length > MAX_TEXTS) {
+      this.texts.splice(0, this.texts.length - MAX_TEXTS);
+    }
   }
 
   update(dtMs: number): void {

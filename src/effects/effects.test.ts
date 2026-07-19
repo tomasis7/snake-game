@@ -21,6 +21,12 @@ describe("Effects particles", () => {
     fx.update(100);
     expect(fx.particleCount).toBe(8);
   });
+
+  it("caps the particle pool so bursts can't grow without bound", () => {
+    const fx = new Effects();
+    for (let i = 0; i < 40; i++) fx.burst(10, 10, "#ffffff", 20);
+    expect(fx.particleCount).toBeLessThanOrEqual(240);
+  });
 });
 
 describe("Effects shake", () => {
@@ -69,5 +75,11 @@ describe("Effects flash and floating text", () => {
     expect(fx.textCount).toBe(1);
     fx.update(5000);
     expect(fx.textCount).toBe(0);
+  });
+
+  it("caps how many floating texts stack up", () => {
+    const fx = new Effects();
+    for (let i = 0; i < 40; i++) fx.floatText(10, 10, "x2", "#ffffff");
+    expect(fx.textCount).toBeLessThanOrEqual(12);
   });
 });
