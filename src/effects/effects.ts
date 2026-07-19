@@ -28,6 +28,9 @@ const FLASH_DURATION_MS = 250;
 const GRAVITY = 0.0006;
 const MAX_PARTICLES = 240;
 const MAX_TEXTS = 12;
+// A single long frame (slow device, tab refocus) must not consume an entire
+// effect's lifetime at once, or all feedback vanishes in one tick.
+const MAX_STEP_MS = 100;
 
 export class Effects {
   private particles: Particle[] = [];
@@ -48,7 +51,7 @@ export class Effects {
   get flashAlpha(): number {
     return this.flashRemaining <= 0
       ? 0
-      : (this.flashRemaining / FLASH_DURATION_MS) * 140;
+      : (this.flashRemaining / FLASH_DURATION_MS) * 70;
   }
 
   burst(x: number, y: number, color: string, count: number = 14): void {
@@ -90,26 +93,27 @@ export class Effects {
   }
 
   update(dtMs: number): void {
+    const step = Math.min(dtMs, MAX_STEP_MS);
     for (const particle of this.particles) {
-      particle.x += particle.vx * dtMs;
-      particle.y += particle.vy * dtMs;
-      particle.vy += GRAVITY * dtMs;
-      particle.life -= dtMs;
+      particle.x += particle.vx * step;
+      particle.y += particle.vy * step;
+      particle.vy += GRAVITY * step;
+      particle.life -= step;
     }
     this.particles = this.particles.filter((p) => p.life > 0);
 
     for (const text of this.texts) {
-      text.y -= 0.03 * dtMs;
-      text.life -= dtMs;
+      text.y -= 0.03 * step;
+      text.life -= step;
     }
     this.texts = this.texts.filter((t) => t.life > 0);
 
-    this.shakeRemaining = Math.max(0, this.shakeRemaining - dtMs);
+    this.shakeRemaining = Math.max(0, this.shakeRemaining - step);
     if (this.shakeRemaining === 0) {
       this.shakeIntensity = 0;
     }
 
-    this.flashRemaining = Math.max(0, this.flashRemaining - dtMs);
+    this.flashRemaining = Math.max(0, this.flashRemaining - step);
   }
 
   shakeOffset(): { x: number; y: number } {

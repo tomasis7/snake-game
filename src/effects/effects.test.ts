@@ -11,7 +11,7 @@ describe("Effects particles", () => {
   it("retires particles once their life runs out", () => {
     const fx = new Effects();
     fx.burst(100, 100, "#ffffff", 8);
-    fx.update(5000);
+    for (let i = 0; i < 40; i++) fx.update(50);
     expect(fx.particleCount).toBe(0);
   });
 
@@ -26,6 +26,13 @@ describe("Effects particles", () => {
     const fx = new Effects();
     for (let i = 0; i < 40; i++) fx.burst(10, 10, "#ffffff", 20);
     expect(fx.particleCount).toBeLessThanOrEqual(240);
+  });
+
+  it("clamps a huge frame step so effects survive a stutter", () => {
+    const fx = new Effects();
+    fx.burst(10, 10, "#ffffff", 8);
+    fx.update(100000);
+    expect(fx.particleCount).toBe(8);
   });
 });
 
@@ -46,7 +53,7 @@ describe("Effects shake", () => {
   it("decays back to rest", () => {
     const fx = new Effects();
     fx.shake(10);
-    fx.update(5000);
+    for (let i = 0; i < 40; i++) fx.update(50);
     expect(fx.shakeOffset()).toEqual({ x: 0, y: 0 });
   });
 
@@ -65,7 +72,7 @@ describe("Effects flash and floating text", () => {
     const fx = new Effects();
     fx.flash("#ffffff");
     expect(fx.flashAlpha).toBeGreaterThan(0);
-    fx.update(5000);
+    for (let i = 0; i < 40; i++) fx.update(50);
     expect(fx.flashAlpha).toBe(0);
   });
 
@@ -73,7 +80,7 @@ describe("Effects flash and floating text", () => {
     const fx = new Effects();
     fx.floatText(50, 50, "MINE!", "#ff00ff");
     expect(fx.textCount).toBe(1);
-    fx.update(5000);
+    for (let i = 0; i < 40; i++) fx.update(50);
     expect(fx.textCount).toBe(0);
   });
 

@@ -188,9 +188,9 @@ export class Player extends Entity {
     // Perpendicular to travel, so the eyes sit side by side.
     const sideX = forwardY;
     const sideY = forwardX;
-    const eye = diameter * 0.16;
-    const forwardOffset = diameter * 0.2;
-    const sideOffset = diameter * 0.2;
+    const eye = diameter * 0.13;
+    const forwardOffset = diameter * 0.18;
+    const sideOffset = diameter * 0.18;
 
     push();
     noStroke();
