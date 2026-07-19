@@ -1,5 +1,5 @@
-// Run-wide progression state (mode, current level, cumulative totals, best
-// score persistence). No p5 globals — unit-tested in node.
+// Run-wide progression state: mode, current level, per-level scores (retry
+// overwrites), and best-score persistence. No p5 globals — unit-tested in node.
 
 export type GameMode = "onePlayer" | "twoPlayer";
 
@@ -45,7 +45,8 @@ export class Progress {
 
   finishRun(): { best: number; isNewBest: boolean } {
     const total = this.getTotal(1);
-    const previous = Number(this.storage.getItem(BEST_KEY) ?? "0");
+    const parsed = Number(this.storage.getItem(BEST_KEY) ?? "0");
+    const previous = Number.isFinite(parsed) ? parsed : 0;
     const isNewBest = total > previous;
     if (isNewBest) {
       this.storage.setItem(BEST_KEY, String(total));

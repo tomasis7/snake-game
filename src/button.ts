@@ -5,6 +5,7 @@ export class Button {
   backgroundColor: string;
   size: p5.Vector;
   color: string;
+  private pressHandled: boolean;
 
   constructor(
     text: string,
@@ -18,6 +19,9 @@ export class Button {
     this.backgroundColor = backgroundColor;
     this.size = size;
     this.color = color;
+    // A press already in progress when this button is created (e.g. the click
+    // that switched screens) must not count as a click on this button.
+    this.pressHandled = mouseIsPressed;
   }
 
   draw(): void {
@@ -32,12 +36,22 @@ export class Button {
   }
 
   isClicked(): boolean {
-    return (
-      mouseIsPressed &&
+    if (!mouseIsPressed) {
+      this.pressHandled = false;
+      return false;
+    }
+    if (this.pressHandled) {
+      return false;
+    }
+    const inside =
       mouseX > this.position.x - this.size.x / 2 &&
       mouseX < this.position.x + this.size.x / 2 &&
       mouseY > this.position.y - this.size.y / 2 &&
-      mouseY < this.position.y + this.size.y / 2
-    );
+      mouseY < this.position.y + this.size.y / 2;
+    if (inside) {
+      this.pressHandled = true;
+      return true;
+    }
+    return false;
   }
 }

@@ -61,4 +61,14 @@ describe("Progress", () => {
     p2.setLevelScores(1, 200, 10);
     expect(p2.finishRun()).toEqual({ best: 300, isNewBest: false });
   });
+
+  it("treats a corrupted stored best as 0 and overwrites it", () => {
+    const storage = fakeStorage();
+    storage.setItem("furious-snake-best-total", "garbage");
+    const p = new Progress(storage);
+    p.startRun("onePlayer");
+    p.setLevelScores(1, 42, 0);
+    expect(p.finishRun()).toEqual({ best: 42, isNewBest: true });
+    expect(storage.getItem("furious-snake-best-total")).toBe("42");
+  });
 });
