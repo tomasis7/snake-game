@@ -1,9 +1,11 @@
 import { GameScreen } from "./gamescreen";
 import { Entity } from "./entity";
 import { Player } from "./player";
+import { RobotPlayer } from "./robotplayer";
 import { LevelFactory } from "./levelfactory";
 import { CollisionManager } from "./collisionmanager";
 import { ScoreManager } from "./scoreManager";
+import { ResultsScreen } from "./resultsscreen";
 import { Ghost } from "./ghost";
 import { Heart } from "./heart";
 import { GameMode } from "./progress";
@@ -14,34 +16,45 @@ export class GameBoard extends GameScreen {
   private levelFactory: LevelFactory;
   private collisionManager: CollisionManager;
   private scoreManager: ScoreManager;
+  private levelNumber: number;
+  private mode: GameMode;
+  private levelEnded: boolean = false;
 
   private cameraOffset: number = 0;
   private scrollSpeed: number = 1.5;
-  private levelNumber: number;
-  private mode: GameMode;
 
   constructor(levelNumber: number, mode: GameMode) {
     super();
     this.levelNumber = levelNumber;
     this.mode = mode;
-    this.players = [
-      new Player(createVector(128, 192), 1, "#00FFFF", "green", {
-        UP: UP_ARROW,
-        DOWN: DOWN_ARROW,
-        RIGHT: RIGHT_ARROW,
-        LEFT: LEFT_ARROW,
-      }),
-      new Player(createVector(128, 576), 2, "#FF00FF", "orange", {
-        UP: 87,
-        DOWN: 83,
-        RIGHT: 68,
-        LEFT: 65,
-      }),
-    ];
 
     this.levelFactory = new LevelFactory();
     const config = this.levelFactory.getLevelConfig(levelNumber);
     this.scrollSpeed = config.scrollSpeed;
+
+    const playerOne = new Player(createVector(128, 192), 1, "#00FFFF", "green", {
+      UP: UP_ARROW,
+      DOWN: DOWN_ARROW,
+      RIGHT: RIGHT_ARROW,
+      LEFT: LEFT_ARROW,
+    });
+    const playerTwo =
+      mode === "onePlayer"
+        ? new RobotPlayer(
+            createVector(128, 576),
+            2,
+            "#FF00FF",
+            "orange",
+            config.robotMistakeChance
+          )
+        : new Player(createVector(128, 576), 2, "#FF00FF", "orange", {
+            UP: 87,
+            DOWN: 83,
+            RIGHT: 68,
+            LEFT: 65,
+          });
+    this.players = [playerOne, playerTwo];
+
     this.entities = this.levelFactory.createEntitiesForLevel(config.layout);
 
     this.scoreManager = new ScoreManager(this.players);
@@ -49,29 +62,48 @@ export class GameBoard extends GameScreen {
       this.players,
       this.entities,
       this.scoreManager,
-      this.removeEntity.bind(this)
+      this.removeEntity.bind(this),
+      this.endLevel.bind(this)
     );
   }
 
   addEntity(entity: Entity): void {
     if (!(entity instanceof Heart)) {
       this.entities.push(entity);
-      console.log(`Entity added:`, entity);
-    } else {
-      console.log(`Heart entity not added to prevent duplicates.`);
     }
   }
 
   removeEntity(entity: Entity): void {
     this.entities = this.entities.filter((e) => e !== entity);
-    console.log(`Entity removed:`, entity);
-    console.log("Current entities after removal:", this.entities);
+  }
+
+  private endLevel(): void {
+    if (this.levelEnded) return;
+    this.levelEnded = true;
+
+    const score1 = this.scoreManager.getScore(1);
+    const score2 = this.scoreManager.getScore(2);
+    game.progress.addLevelScores(score1, score2);
+    game.changeScreen(
+      new ResultsScreen(this.levelNumber, this.mode, score1, score2)
+    );
   }
 
   public update(): void {
+    if (this.levelEnded) return;
+
     this.cameraOffset += this.scrollSpeed;
 
     for (const player of this.players) {
+      if (player instanceof RobotPlayer) {
+        player.setContext({
+          entities: this.entities,
+          cameraOffset: this.cameraOffset,
+          otherTrails: this.players
+            .filter((p) => p !== player)
+            .map((p) => p.trail),
+        });
+      }
       player.update();
     }
 
@@ -111,6 +143,15 @@ export class GameBoard extends GameScreen {
     }
 
     pop();
+
     this.scoreManager.draw();
+
+    push();
+    textFont(customFont);
+    textSize(16);
+    textAlign(LEFT, CENTER);
+    fill("#45FF8C");
+    text(`LEVEL ${this.levelNumber} / ${LevelFactory.LEVEL_COUNT}`, 20, 50);
+    pop();
   }
 }

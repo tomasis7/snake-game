@@ -46,7 +46,7 @@ export class ScoreManager {
         (p) => p.getPlayerNumber() === playerNumber
       );
       if (player) {
-        const textContent = `Player: ${playerNumber} Score: ${score} | Lives: ${player.lives}`;
+        const textContent = `${player.displayName} Score: ${score} | Lives: ${player.lives}`;
         if (playerNumber === 1) {
           text(textContent, width / 2, 50);
         } else if (playerNumber === 2) {

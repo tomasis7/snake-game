@@ -8,24 +8,26 @@ import { Star } from "./star";
 import { Heart } from "./heart";
 import { Plant } from "./plant";
 import { WinBlock } from "./winBlock";
-import { GameOverScreen } from "./gameOverScreen";
 
 export class CollisionManager {
   players: Player[];
   entities: Entity[];
   scoreManager: ScoreManager;
   private removeEntityCallback: (entity: Entity) => void;
+  private onLevelEnd: () => void;
 
   constructor(
     players: Player[],
     entities: Entity[],
     scoreManager: ScoreManager,
-    removeEntityCallback: (entity: Entity) => void
+    removeEntityCallback: (entity: Entity) => void,
+    onLevelEnd: () => void
   ) {
     this.players = players;
     this.entities = entities;
     this.scoreManager = scoreManager;
     this.removeEntityCallback = removeEntityCallback;
+    this.onLevelEnd = onLevelEnd;
   }
 
   private handleTetrisCollision(player: Player): void {
@@ -38,7 +40,7 @@ export class CollisionManager {
     player.isMoving = false;
     console.log(`Player ${player.playerNumber} collided with a TetrisBlock.`);
 
-    this.showGameOver(player.playerNumber);
+    this.onLevelEnd();
   }
 
   private handleBlockCollision(player: Player): void {
@@ -50,7 +52,7 @@ export class CollisionManager {
     player.isMoving = false;
     console.log(`Player ${player.playerNumber} collided with a TetrisBlock.`);
 
-    this.showGameOver(player.playerNumber);
+    this.onLevelEnd();
   }
 
   private handleWinBlockCollision(player: Player): void {
@@ -62,8 +64,7 @@ export class CollisionManager {
     player.isColliding = true;
     player.isMoving = false;
     console.log(`Player ${player.playerNumber} won!`);
-    const otherPlayerNumber = player.playerNumber === 1 ? 2 : 1;
-    this.showGameOver(otherPlayerNumber);
+    this.onLevelEnd();
   }
 
   private handleStarCollision(player: Player, star: Entity): void {
@@ -132,7 +133,7 @@ export class CollisionManager {
         music.backgroundMusic.stop();
       }
 
-      this.showGameOver(player.playerNumber);
+      this.onLevelEnd();
     }
   }
 
@@ -173,7 +174,7 @@ export class CollisionManager {
       }
 
       if (player.lives === 0) {
-        this.showGameOver(player.playerNumber);
+        this.onLevelEnd();
       }
 
       this.scoreManager.updateScore(player.getPlayerNumber(), -5);
@@ -237,18 +238,6 @@ export class CollisionManager {
         }
       }
     }
-  }
-
-  private showGameOver(losingPlayer: number): void {
-    const winnerMessage =
-      losingPlayer === 1
-        ? " - Player 2"
-        : losingPlayer === 2
-        ? " - Player 1"
-        : "Game Over!";
-
-    game.changeScreen(new GameOverScreen(winnerMessage, this.scoreManager));
-    console.log(winnerMessage);
   }
 
   showPopupMessage(message: string, duration: number = 3000): void {
