@@ -10,6 +10,8 @@ import { Plant } from "./plant";
 import { WinBlock } from "./winBlock";
 import { Effects } from "./effects/effects";
 import { RobotPlayer } from "./robotplayer";
+import { ComboTracker } from "./combo";
+import { playComboBlip } from "./audio/sfx";
 
 export class CollisionManager {
   players: Player[];
@@ -18,6 +20,7 @@ export class CollisionManager {
   private removeEntityCallback: (entity: Entity) => void;
   private onLevelEnd: () => void;
   private effects: Effects;
+  private combos: Map<number, ComboTracker> = new Map();
 
   constructor(
     players: Player[],
@@ -106,6 +109,41 @@ export class CollisionManager {
     );
   }
 
+  // Scores a pickup at the player's current combo tier and shows the chain.
+  private awardPickup(player: Player, pickup: Entity, basePoints: number): void {
+    let combo = this.combos.get(player.getPlayerNumber());
+    if (!combo) {
+      combo = new ComboTracker();
+      this.combos.set(player.getPlayerNumber(), combo);
+    }
+
+    const multiplier = combo.registerPickup(Date.now());
+    this.scoreManager.updateScore(
+      player.getPlayerNumber(),
+      basePoints * multiplier
+    );
+
+    const label =
+      multiplier > 1
+        ? `+${basePoints * multiplier}  x${multiplier}`
+        : `+${basePoints}`;
+    this.effects.floatText(
+      pickup.position.x,
+      pickup.position.y - 8,
+      label,
+      multiplier > 1 ? "#FDD03C" : "#FFFFFF"
+    );
+
+    if (multiplier > 1) {
+      playComboBlip(multiplier);
+    }
+  }
+
+  // A hit breaks the chain.
+  private breakCombo(player: Player): void {
+    this.combos.get(player.getPlayerNumber())?.reset();
+  }
+
   private handleStarCollision(player: Player, star: Entity): void {
     if (star.isRemoved) return;
     sounds.starPickUp.play();
@@ -114,6 +152,7 @@ export class CollisionManager {
     player.grow(1);
     this.effects.burst(star.position.x, star.position.y, "#ffd93b");
     this.maybeTaunt(player, star);
+    this.awardPickup(player, star, 100);
 
     player.scoreMultiplier = 2;
 
@@ -145,6 +184,7 @@ export class CollisionManager {
     player.grow(1);
     this.effects.burst(heart.position.x, heart.position.y, "#e8384f");
     this.maybeTaunt(player, heart);
+    this.awardPickup(player, heart, 50);
 
     if (player.lives < player.maxLives) {
       player.lives += 1;
@@ -167,6 +207,7 @@ export class CollisionManager {
     sounds.blockCollision.play();
     player.isColliding = true;
     this.effects.shake(10);
+    this.breakCombo(player);
     this.effects.flash("#ff2d55");
     this.effects.burst(player.trail[0].x, player.trail[0].y, "#ff2d55", 10);
 
@@ -218,6 +259,7 @@ export class CollisionManager {
     if (currentTime - player.lastCollisionTime > 2000) {
       player.isColliding = true;
       this.effects.shake(8);
+      this.breakCombo(player);
       this.effects.burst(player.trail[0].x, player.trail[0].y, "#f4f4f4", 10);
       player.lives -= 1;
 

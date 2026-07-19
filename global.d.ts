@@ -19,6 +19,9 @@ declare global {
     loadingCallback?: (percentageLoaded: number) => void
   ): p5.SoundFile;
 
+  // p5.sound global; returns the Web Audio context p5 already manages.
+  function getAudioContext(): AudioContext;
+
   // Shared game globals assigned by main.ts
   var game: any;
   var images: any;
