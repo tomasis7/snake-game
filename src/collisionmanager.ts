@@ -8,6 +8,8 @@ import { Star } from "./star";
 import { Heart } from "./heart";
 import { Plant } from "./plant";
 import { WinBlock } from "./winBlock";
+import { Effects } from "./effects/effects";
+import { RobotPlayer } from "./robotplayer";
 
 export class CollisionManager {
   players: Player[];
@@ -15,19 +17,22 @@ export class CollisionManager {
   scoreManager: ScoreManager;
   private removeEntityCallback: (entity: Entity) => void;
   private onLevelEnd: () => void;
+  private effects: Effects;
 
   constructor(
     players: Player[],
     entities: Entity[],
     scoreManager: ScoreManager,
     removeEntityCallback: (entity: Entity) => void,
-    onLevelEnd: () => void
+    onLevelEnd: () => void,
+    effects: Effects
   ) {
     this.players = players;
     this.entities = entities;
     this.scoreManager = scoreManager;
     this.removeEntityCallback = removeEntityCallback;
     this.onLevelEnd = onLevelEnd;
+    this.effects = effects;
   }
 
   private handleTetrisCollision(player: Player): void {
@@ -37,6 +42,8 @@ export class CollisionManager {
     }
 
     player.isColliding = true;
+    this.effects.shake(16);
+    this.effects.flash("#ff2d55");
     player.isMoving = false;
     console.log(`Player ${player.playerNumber} collided with a TetrisBlock.`);
 
@@ -49,6 +56,8 @@ export class CollisionManager {
       music.backgroundMusic.stop();
     }
     player.isColliding = true;
+    this.effects.shake(16);
+    this.effects.flash("#ff2d55");
     player.isMoving = false;
     console.log(`Player ${player.playerNumber} collided with a TetrisBlock.`);
 
@@ -62,15 +71,49 @@ export class CollisionManager {
     }
 
     player.isColliding = true;
+    this.effects.flash("#45FF8C");
     player.isMoving = false;
     console.log(`Player ${player.playerNumber} won!`);
     this.onLevelEnd();
+  }
+
+  private static readonly TAUNTS = ["MINE!", "TOO SLOW!", "GOT IT!", "NICE TRY!"];
+
+  // The robot gloats only when it stole something the human was closing in on.
+  private maybeTaunt(collector: Player, pickup: Entity): void {
+    if (!(collector instanceof RobotPlayer)) return;
+
+    const human = this.players.find((p) => !(p instanceof RobotPlayer));
+    if (!human) return;
+
+    const distance = dist(
+      human.trail[0].x,
+      human.trail[0].y,
+      pickup.position.x,
+      pickup.position.y
+    );
+    if (distance > 4 * 32) return;
+
+    const taunt =
+      CollisionManager.TAUNTS[
+        Math.floor(Math.random() * CollisionManager.TAUNTS.length)
+      ];
+    this.effects.floatText(
+      pickup.position.x,
+      pickup.position.y - 24,
+      taunt,
+      "#FF00FF"
+    );
   }
 
   private handleStarCollision(player: Player, star: Entity): void {
     if (star.isRemoved) return;
     sounds.starPickUp.play();
     player.isColliding = true;
+
+    player.grow(1);
+    this.effects.burst(star.position.x, star.position.y, "#ffd93b");
+    this.maybeTaunt(player, star);
 
     player.scoreMultiplier = 2;
 
@@ -99,6 +142,10 @@ export class CollisionManager {
     player.isColliding = true;
     console.log(`Player ${player.playerNumber} collected a Heart!`);
 
+    player.grow(1);
+    this.effects.burst(heart.position.x, heart.position.y, "#e8384f");
+    this.maybeTaunt(player, heart);
+
     if (player.lives < player.maxLives) {
       player.lives += 1;
     }
@@ -119,6 +166,9 @@ export class CollisionManager {
     console.log(`Player lives before collision: ${player.lives}`);
     sounds.blockCollision.play();
     player.isColliding = true;
+    this.effects.shake(10);
+    this.effects.flash("#ff2d55");
+    this.effects.burst(player.trail[0].x, player.trail[0].y, "#ff2d55", 10);
 
     player.lives -= 2;
 
@@ -167,6 +217,8 @@ export class CollisionManager {
 
     if (currentTime - player.lastCollisionTime > 2000) {
       player.isColliding = true;
+      this.effects.shake(8);
+      this.effects.burst(player.trail[0].x, player.trail[0].y, "#f4f4f4", 10);
       player.lives -= 1;
 
       if (player.lives < 0) {

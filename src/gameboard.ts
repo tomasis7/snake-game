@@ -9,6 +9,7 @@ import { ResultsScreen } from "./resultsscreen";
 import { Ghost } from "./ghost";
 import { Heart } from "./heart";
 import { GameMode } from "./progress";
+import { Effects } from "./effects/effects";
 
 export class GameBoard extends GameScreen {
   private entities: Entity[];
@@ -19,6 +20,7 @@ export class GameBoard extends GameScreen {
   private levelNumber: number;
   private mode: GameMode;
   private levelEnded: boolean = false;
+  private effects: Effects = new Effects();
 
   private cameraOffset: number = 0;
   private scrollSpeed: number = 1.5;
@@ -63,7 +65,8 @@ export class GameBoard extends GameScreen {
       this.entities,
       this.scoreManager,
       this.removeEntity.bind(this),
-      this.endLevel.bind(this)
+      this.endLevel.bind(this),
+      this.effects
     );
   }
 
@@ -115,6 +118,7 @@ export class GameBoard extends GameScreen {
 
     this.collisionManager.checkCollision();
     this.scoreManager.tickScore();
+    this.effects.update(deltaTime);
   }
 
   private flyingGhost(): void {
@@ -127,12 +131,20 @@ export class GameBoard extends GameScreen {
 
   draw(): void {
     background(0);
+    const shake = this.effects.shakeOffset();
+
     const numBackgrounds = Math.ceil((width + this.cameraOffset) / 1415) + 1;
     for (let i = 0; i < numBackgrounds; i++) {
-      image(images.background, i * 1415 - this.cameraOffset, 0, 1415, 800);
+      image(
+        images.background,
+        i * 1415 - this.cameraOffset + shake.x,
+        shake.y,
+        1415,
+        800
+      );
     }
     push();
-    translate(-this.cameraOffset, 0);
+    translate(-this.cameraOffset + shake.x, shake.y);
 
     for (const entity of this.entities) {
       entity.draw();
@@ -142,8 +154,11 @@ export class GameBoard extends GameScreen {
       player.draw();
     }
 
+    this.effects.drawWorld();
+
     pop();
 
+    this.effects.drawOverlay();
     this.scoreManager.draw();
 
     push();
