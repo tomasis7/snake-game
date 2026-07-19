@@ -9,6 +9,7 @@ import {
   GridPos,
   cellKey,
   decideDirection,
+  fallbackDir,
 } from "./ai/pathfinding";
 
 export interface RobotContext {
@@ -57,15 +58,21 @@ export class RobotPlayer extends Player {
     if (this.thinkTimer < 200) return;
     this.thinkTimer = 0;
 
-    // Difficulty knob: on a "mistake" tick the robot skips thinking and drifts.
-    if (Math.random() < this.mistakeChance) return;
-
     const { world, pickups } = this.buildWorld();
     const head = toGrid(this.trail[0].x, this.trail[0].y);
     const currentDir = {
       dx: Math.sign(this.direction.x),
       dy: Math.sign(this.direction.y),
     };
+
+    // Difficulty knob: on a "mistake" tick the robot stops chasing pickups,
+    // but still refuses lethal moves — dumb, not suicidal.
+    if (Math.random() < this.mistakeChance) {
+      const safe = fallbackDir(world, head, currentDir);
+      this.nextDirection = createVector(safe.dx * CELL, safe.dy * CELL);
+      return;
+    }
+
     // Contested targeting is the perfect-robot (level 3) behavior only.
     const rivalTrail = this.context.otherTrails[0];
     const rivalHead =
