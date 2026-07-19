@@ -62,6 +62,7 @@ export function bfsFirstStep(
 ): Dir | null {
   const targetKey = cellKey(target.col, target.row);
   if (cellKey(start.col, start.row) === targetKey) return null;
+  if (!isFree(world, target)) return null;
 
   interface Node {
     pos: GridPos;

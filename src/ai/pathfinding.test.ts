@@ -48,6 +48,12 @@ describe("bfsFirstStep", () => {
     // Must not be { dx: -1, dy: 0 } as the FIRST step
     expect(step).not.toEqual({ dx: -1, dy: 0 });
   });
+
+  it("returns null when the target cell itself is blocked", () => {
+    const world = makeWorld([[8, 5]]);
+    const step = bfsFirstStep(world, { col: 5, row: 5 }, { col: 8, row: 5 }, RIGHT);
+    expect(step).toBeNull();
+  });
 });
 
 describe("fallbackDir", () => {
