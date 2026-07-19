@@ -1,4 +1,6 @@
 import { Entity } from "./entity";
+import { SPRITES } from "./art/sprites";
+import { drawSprite } from "./art/drawsprite";
 
 export class Star extends Entity {
   constructor(x: number, y: number) {
@@ -13,16 +15,9 @@ export class Star extends Entity {
   }
 
   draw(): void {
-    push();
-    imageMode(CENTER);
-    translate(this.position.x, this.position.y);
-
-    if (this.image) {
-      image(this.image, 0, 0, this.size.x, this.size.y);
-    } else {
-      console.warn("Star entity has no image to draw.");
-    }
-
-    pop();
+    if (this.isRemoved) return;
+    // Twinkle: swap to the hotter palette twice a second.
+    const frame = millis() % 800 < 400 ? SPRITES.star : SPRITES.starBright;
+    drawSprite(frame, this.position.x, this.position.y, this.size.x, this.size.y);
   }
 }

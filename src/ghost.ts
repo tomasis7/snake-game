@@ -1,4 +1,6 @@
 import { Entity } from "./entity";
+import { SPRITES } from "./art/sprites";
+import { drawSprite } from "./art/drawsprite";
 
 export class Ghost extends Entity {
   constructor(x: number, y: number) {
@@ -13,17 +15,16 @@ export class Ghost extends Entity {
   }
 
   draw(): void {
-    push();
-    imageMode(CENTER);
-    translate(this.position.x, this.position.y);
-
-    if (this.image) {
-      image(this.image, 0, 0, this.size.x, this.size.y);
-    } else {
-      console.warn("Ghost entity has no image to draw.");
-    }
-
-    pop();
+    if (this.isRemoved) return;
+    // Bob: a slow 3px vertical float, independent of its drift velocity.
+    const bob = Math.sin(millis() / 400) * 3;
+    drawSprite(
+      SPRITES.ghost,
+      this.position.x,
+      this.position.y + bob,
+      this.size.x,
+      this.size.y
+    );
   }
 
   update(): void {

@@ -1,4 +1,6 @@
 import { Entity } from "./entity";
+import { SPRITES } from "./art/sprites";
+import { drawSprite } from "./art/drawsprite";
 
 export class Heart extends Entity {
   private pulseScale: number;
@@ -18,18 +20,14 @@ export class Heart extends Entity {
   }
 
   draw(): void {
-    push();
-    imageMode(CENTER);
-    translate(this.position.x, this.position.y);
-    scale(this.pulseScale);
-
-    if (this.image) {
-      image(this.image, 0, 0, this.size.x, this.size.y);
-    } else {
-      console.warn("Heart entity has no image to draw.");
-    }
-
-    pop();
+    if (this.isRemoved) return;
+    drawSprite(
+      SPRITES.heart,
+      this.position.x,
+      this.position.y,
+      this.size.x * this.pulseScale,
+      this.size.y * this.pulseScale
+    );
   }
 
   update(): void {
