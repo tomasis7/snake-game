@@ -154,21 +154,6 @@ export class CollisionManager {
     this.maybeTaunt(player, star);
     this.awardPickup(player, star, 100);
 
-    player.scoreMultiplier = 2;
-
-    const scoreInterval = setInterval(() => {
-      this.scoreManager.updateScore(
-        player.getPlayerNumber(),
-        50 * player.scoreMultiplier
-      );
-    }, 1000);
-
-    setTimeout(() => {
-      player.scoreMultiplier = 1;
-      clearInterval(scoreInterval);
-      console.log(`Player ${player.playerNumber}'s score multiplier reset.`);
-    }, 10000);
-
     star.isRemoved = true;
     this.removeEntityCallback(star);
     console.log(`Star entity removed:`, star);

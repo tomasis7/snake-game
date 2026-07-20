@@ -22,7 +22,6 @@ export class Player extends Entity {
   public maxLives: number;
   public lastCollisionTime: number;
   public collisionCooldown: number;
-  public scoreMultiplier: number;
   public canPassThroughObstacles: boolean;
 
   public isMoving: boolean;
@@ -74,7 +73,6 @@ export class Player extends Entity {
     this.maxLives = 10;
     this.lastCollisionTime = 0;
     this.collisionCooldown = 1000;
-    this.scoreMultiplier = 1;
     this.canPassThroughObstacles = false;
   }
 
@@ -204,11 +202,6 @@ export class Player extends Entity {
       rect(x + forwardX * eye * 0.4, y + forwardY * eye * 0.4, eye, eye);
     }
     pop();
-  }
-
-  public addScore(points: number): void {
-    const totalPoints = points * this.scoreMultiplier;
-    console.log(`Player ${this.playerNumber} gained ${totalPoints} points!`);
   }
 
   public enableObstaclePassing(duration: number): void {
