@@ -2,15 +2,15 @@ import { GameScreen } from "./gamescreen";
 import { Button } from "./button";
 import { StartMenu } from "./startmenu";
 import { GameMode } from "./progress";
+import { formatTime } from "./racemanager";
 
 export class ResultsScreen extends GameScreen {
   private levelNumber: number;
   private mode: GameMode;
-  private score1: number;
-  private score2: number;
-  private winner: number; // 1, 2, or 0 for tie
+  private winner: number;
+  private humanTimeMs: number;
+  private best: { bestMs: number; isNewBest: boolean } | null;
   private isFinal: boolean;
-  private finalBest: { best: number; isNewBest: boolean } | null = null;
 
   private nextLevelButton: Button | null = null;
   private retryButton: Button;
@@ -19,24 +19,20 @@ export class ResultsScreen extends GameScreen {
   constructor(
     levelNumber: number,
     mode: GameMode,
-    score1: number,
-    score2: number
+    winner: number,
+    humanTimeMs: number,
+    best: { bestMs: number; isNewBest: boolean } | null
   ) {
     super();
     this.levelNumber = levelNumber;
     this.mode = mode;
-    this.score1 = score1;
-    this.score2 = score2;
-    this.winner = score1 > score2 ? 1 : score2 > score1 ? 2 : 0;
+    this.winner = winner;
+    this.humanTimeMs = humanTimeMs;
+    this.best = best;
     this.isFinal = levelNumber >= 3;
 
-    if (this.isFinal) {
-      this.finalBest = game.progress.finishRun();
-    }
-
-    const humanAdvances =
-      this.mode === "twoPlayer" ? this.winner !== 0 : this.winner === 1;
-    if (!this.isFinal && humanAdvances) {
+    const humanWon = mode === "onePlayer" ? winner === 1 : winner !== 0;
+    if (!this.isFinal && humanWon) {
       this.nextLevelButton = new Button(
         "Next Level",
         createVector(width / 2, height / 2 + 140),
@@ -64,18 +60,10 @@ export class ResultsScreen extends GameScreen {
   }
 
   private winnerText(): string {
-    if (this.winner === 0) return "IT'S A TIE!";
     if (this.mode === "onePlayer") {
-      return this.winner === 1 ? "YOU WIN!" : "ROBOT WINS!";
+      return this.winner === 1 ? "YOU REACHED THE GOAL!" : "ROBOT WINS!";
     }
     return `PLAYER ${this.winner} WINS!`;
-  }
-
-  private nameFor(playerNumber: number): string {
-    if (this.mode === "onePlayer") {
-      return playerNumber === 1 ? "YOU" : "ROBOT";
-    }
-    return `PLAYER ${playerNumber}`;
   }
 
   update(): void {
@@ -107,38 +95,22 @@ export class ResultsScreen extends GameScreen {
     );
 
     fill("white");
-    textSize(48);
+    textSize(44);
     text(this.winnerText(), width / 2, height / 6 + 90);
 
-    textSize(22);
     fill("#00FFFF");
-    text(
-      `${this.nameFor(1)}  ${this.score1}`,
-      width / 2 - 220,
-      height / 2 - 40
-    );
-    fill("#FF00FF");
-    text(
-      `${this.nameFor(2)}  ${this.score2}`,
-      width / 2 + 220,
-      height / 2 - 40
-    );
+    textSize(24);
+    text(`TIME  ${formatTime(this.humanTimeMs)}`, width / 2, height / 2 - 20);
 
-    if (this.isFinal && this.finalBest) {
-      fill("white");
-      textSize(18);
-      text(
-        `RUN TOTAL  ${this.nameFor(1)} ${game.progress.getTotal(1)}  -  ${this.nameFor(2)} ${game.progress.getTotal(2)}`,
-        width / 2,
-        height / 2 + 30
-      );
+    if (this.best) {
       fill("#FDD03C");
+      textSize(20);
       text(
-        this.finalBest.isNewBest
-          ? `NEW BEST: ${this.finalBest.best}!`
-          : `BEST: ${this.finalBest.best}`,
+        this.best.isNewBest
+          ? `NEW BEST!  ${formatTime(this.best.bestMs)}`
+          : `BEST  ${formatTime(this.best.bestMs)}`,
         width / 2,
-        height / 2 + 70
+        height / 2 + 20
       );
     }
 

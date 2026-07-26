@@ -4,10 +4,10 @@ import { Player } from "./player";
 import { RobotPlayer } from "./robotplayer";
 import { LevelFactory } from "./levelfactory";
 import { CollisionManager } from "./collisionmanager";
-import { ScoreManager } from "./scoreManager";
+import { RaceManager, RaceReason, RacerHud } from "./racemanager";
 import { ResultsScreen } from "./resultsscreen";
 import { Ghost } from "./ghost";
-import { Heart } from "./heart";
+import { WinBlock } from "./winBlock";
 import { GameMode } from "./progress";
 import { Effects } from "./effects/effects";
 
@@ -16,7 +16,7 @@ export class GameBoard extends GameScreen {
   private players: Player[];
   private levelFactory: LevelFactory;
   private collisionManager: CollisionManager;
-  private scoreManager: ScoreManager;
+  private raceManager: RaceManager;
   private levelNumber: number;
   private mode: GameMode;
   private levelEnded: boolean = false;
@@ -59,36 +59,57 @@ export class GameBoard extends GameScreen {
 
     this.entities = this.levelFactory.createEntitiesForLevel(config.layout);
 
-    this.scoreManager = new ScoreManager(this.players);
+    const winBlock = this.entities.find((e) => e instanceof WinBlock);
+    const finishX = winBlock ? winBlock.position.x : width * 4;
+    const startX = playerOne.trail[0].x;
+    this.raceManager = new RaceManager([1, 2], startX, finishX);
+
     this.collisionManager = new CollisionManager(
       this.players,
       this.entities,
-      this.scoreManager,
       this.removeEntity.bind(this),
-      this.endLevel.bind(this),
+      this.onFinish.bind(this),
+      this.onEliminate.bind(this),
       this.effects
     );
-  }
-
-  addEntity(entity: Entity): void {
-    if (!(entity instanceof Heart)) {
-      this.entities.push(entity);
-    }
   }
 
   removeEntity(entity: Entity): void {
     this.entities = this.entities.filter((e) => e !== entity);
   }
 
-  private endLevel(): void {
+  private other(playerNumber: number): number {
+    return playerNumber === 1 ? 2 : 1;
+  }
+
+  private onFinish(playerNumber: number): void {
+    this.resolveRace(playerNumber, "finish");
+  }
+
+  private onEliminate(playerNumber: number): void {
+    this.resolveRace(this.other(playerNumber), "opponent-out");
+  }
+
+  private resolveRace(winnerPlayerNumber: number, reason: RaceReason): void {
     if (this.levelEnded) return;
     this.levelEnded = true;
+    this.raceManager.declareWinner(winnerPlayerNumber, reason);
 
-    const score1 = this.scoreManager.getScore(1);
-    const score2 = this.scoreManager.getScore(2);
-    game.progress.setLevelScores(this.levelNumber, score1, score2);
+    const humanTimeMs = this.raceManager.elapsedMs();
+    // A best time only counts when the human actually crossed the finish line.
+    const best =
+      winnerPlayerNumber === 1 && reason === "finish"
+        ? game.progress.recordBestTime(this.levelNumber, humanTimeMs)
+        : null;
+
     game.changeScreen(
-      new ResultsScreen(this.levelNumber, this.mode, score1, score2)
+      new ResultsScreen(
+        this.levelNumber,
+        this.mode,
+        winnerPlayerNumber,
+        humanTimeMs,
+        best
+      )
     );
   }
 
@@ -110,6 +131,14 @@ export class GameBoard extends GameScreen {
       player.update();
     }
 
+    // Left-edge death: a racer whose head scrolls off the left edge is out.
+    for (const player of this.players) {
+      if (player.trail[0].x + player.size.x < this.cameraOffset) {
+        this.resolveRace(this.other(player.getPlayerNumber()), "fell-behind");
+        if (this.levelEnded) return;
+      }
+    }
+
     for (const entity of this.entities) {
       entity.update();
     }
@@ -117,7 +146,11 @@ export class GameBoard extends GameScreen {
     this.flyingGhost();
 
     this.collisionManager.checkCollision();
-    this.scoreManager.tickScore();
+
+    for (const player of this.players) {
+      this.raceManager.setHeadX(player.getPlayerNumber(), player.trail[0].x);
+    }
+    this.raceManager.tick(deltaTime);
     this.effects.update(deltaTime);
   }
 
@@ -127,6 +160,14 @@ export class GameBoard extends GameScreen {
         entity.update();
       }
     }
+  }
+
+  private racerHud(): RacerHud[] {
+    return this.players.map((p) => ({
+      pn: p.getPlayerNumber(),
+      color: p.getPlayerNumber() === 1 ? "#00FFFF" : "#FF00FF",
+      lives: p.lives,
+    }));
   }
 
   draw(): void {
@@ -159,14 +200,10 @@ export class GameBoard extends GameScreen {
     pop();
 
     this.effects.drawOverlay();
-    this.scoreManager.draw();
-
-    push();
-    textFont(customFont);
-    textSize(16);
-    textAlign(LEFT, CENTER);
-    fill("#45FF8C");
-    text(`LEVEL ${this.levelNumber} / ${LevelFactory.LEVEL_COUNT}`, 20, 50);
-    pop();
+    this.raceManager.draw(
+      this.racerHud(),
+      this.levelNumber,
+      LevelFactory.LEVEL_COUNT
+    );
   }
 }
