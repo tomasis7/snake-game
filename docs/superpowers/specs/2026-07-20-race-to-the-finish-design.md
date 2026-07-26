@@ -36,9 +36,13 @@ Pixel-art sprites and cached-buffer rendering, particles / screen shake / damage
 
 The camera auto-scrolls right at the level's base speed, ramping up the further right you get. You steer a fixed-length snake to weave through obstacles toward the finish block. The robot races you on its shortest-path line. Grab a power-up only when it is on or near your line. **First to touch the finish wins the level;** the loser is whoever finishes second, falls off the left edge, or runs out of lives first.
 
+## Camera & the fall-behind rule (revised 2026-07-20)
+
+The fixed rightward auto-scroll is replaced by a **zoom-to-fit camera** that always frames both racers: it centres on the midpoint of the two heads and zooms out (down to a minimum scale) so both stay on screen, zooming back in when they close up. The forward pressure is now **relative to the leader** via a **kill line** that trails the leader by a fixed gap and only ever advances. A racer whose head falls behind the kill line is eliminated; the other racer wins. As a trailing racer nears the kill line, a flashing **"OUT OF TIME!"** warning appears over it. Because the gap is capped by the kill line, the two snakes can never separate by more than one screen — solving "you can't see both snakes." The robot is fed the kill line as its left-edge reference, so its existing survival brain needs no changes.
+
 ## Failure & hazards
 
-- **Left-edge death:** if a racer's head scrolls off the left screen edge (`head.x < cameraOffset`), that racer is out. For the human this ends the run as a loss; if the robot falls off, the human wins.
+- **Fall-behind death:** if a racer's head falls behind the moving kill line, that racer is out. For the human this ends the run as a loss; if the robot falls behind, the human wins. (This replaces the earlier fixed-scroll "left screen edge" death.)
 - **Lives:** start at 3. A hazard hit (wall, tetris block, plant, ghost) subtracts 1 life and applies a **stun**: the racer cannot move for ~600 ms and is briefly invulnerable (reuse the existing collision-cooldown blink). Lives at 0 → that racer is out.
 - **Hazards no longer instant-kill.** `handleTetrisCollision` / `handleBlockCollision` change from "game over" to "lose a life + stun."
 - **Scroll ramp:** base scroll speed comes from the level config; it increases with distance travelled (e.g. `speed = base + k · (cameraOffset / width)`), clamped to a max.

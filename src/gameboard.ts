@@ -6,10 +6,19 @@ import { LevelFactory } from "./levelfactory";
 import { CollisionManager } from "./collisionmanager";
 import { RaceManager, RaceReason, RacerHud } from "./racemanager";
 import { ResultsScreen } from "./resultsscreen";
+import { fitCamera, advanceKillLine, Camera } from "./camera";
 import { Ghost } from "./ghost";
 import { WinBlock } from "./winBlock";
 import { GameMode } from "./progress";
 import { Effects } from "./effects/effects";
+
+// How far a racer may trail the leader before being eliminated, how close to
+// that line the warning appears, and the camera framing limits.
+const MAX_GAP = 1000;
+const WARN_MARGIN = 280;
+const CAMERA_PADDING = 220;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 1.0;
 
 export class GameBoard extends GameScreen {
   private entities: Entity[];
@@ -22,8 +31,7 @@ export class GameBoard extends GameScreen {
   private levelEnded: boolean = false;
   private effects: Effects = new Effects();
 
-  private cameraOffset: number = 0;
-  private scrollSpeed: number = 1.5;
+  private killLine: number = 0;
 
   constructor(levelNumber: number, mode: GameMode) {
     super();
@@ -32,7 +40,6 @@ export class GameBoard extends GameScreen {
 
     this.levelFactory = new LevelFactory();
     const config = this.levelFactory.getLevelConfig(levelNumber);
-    this.scrollSpeed = config.scrollSpeed;
 
     const playerOne = new Player(createVector(128, 192), 1, "#00FFFF", "green", {
       UP: UP_ARROW,
@@ -82,6 +89,10 @@ export class GameBoard extends GameScreen {
     return playerNumber === 1 ? 2 : 1;
   }
 
+  private leaderX(): number {
+    return Math.max(...this.players.map((p) => p.trail[0].x));
+  }
+
   private onFinish(playerNumber: number): void {
     this.resolveRace(playerNumber, "finish");
   }
@@ -96,7 +107,6 @@ export class GameBoard extends GameScreen {
     this.raceManager.declareWinner(winnerPlayerNumber, reason);
 
     const humanTimeMs = this.raceManager.elapsedMs();
-    // A best time only counts when the human actually crossed the finish line.
     const best =
       winnerPlayerNumber === 1 && reason === "finish"
         ? game.progress.recordBestTime(this.levelNumber, humanTimeMs)
@@ -116,13 +126,17 @@ export class GameBoard extends GameScreen {
   public update(): void {
     if (this.levelEnded) return;
 
-    this.cameraOffset += this.scrollSpeed;
+    // The kill line trails the leader and only advances — falling behind it is
+    // the pressure that replaced the old fixed scroll.
+    this.killLine = advanceKillLine(this.killLine, this.leaderX(), MAX_GAP);
 
     for (const player of this.players) {
       if (player instanceof RobotPlayer) {
+        // The robot treats the kill line exactly like the old left edge, so its
+        // survival brain keeps working with no changes.
         player.setContext({
           entities: this.entities,
-          cameraOffset: this.cameraOffset,
+          cameraOffset: this.killLine,
           otherTrails: this.players
             .filter((p) => p !== player)
             .map((p) => p.trail),
@@ -131,9 +145,8 @@ export class GameBoard extends GameScreen {
       player.update();
     }
 
-    // Left-edge death: a racer whose head scrolls off the left edge is out.
     for (const player of this.players) {
-      if (player.trail[0].x + player.size.x < this.cameraOffset) {
+      if (player.trail[0].x + player.size.x < this.killLine) {
         this.resolveRace(this.other(player.getPlayerNumber()), "fell-behind");
         if (this.levelEnded) return;
       }
@@ -170,22 +183,53 @@ export class GameBoard extends GameScreen {
     }));
   }
 
+  private camera(): Camera {
+    return fitCamera(
+      this.players.map((p) => p.trail[0].x),
+      this.players.map((p) => p.trail[0].y),
+      width,
+      height,
+      CAMERA_PADDING,
+      MIN_SCALE,
+      MAX_SCALE
+    );
+  }
+
+  // Flashing warning over any racer near the kill line, so a trailing snake
+  // knows it is about to be eliminated.
+  private drawWarnings(cam: Camera): void {
+    if (millis() % 500 >= 300) return;
+    for (const player of this.players) {
+      const head = player.trail[0];
+      if (head.x >= this.killLine + WARN_MARGIN) continue;
+      const sx = (head.x - cam.centerX) * cam.scale + width / 2;
+      const sy = (head.y - cam.centerY) * cam.scale + height / 2;
+      push();
+      textFont(customFont);
+      textAlign(CENTER, CENTER);
+      textSize(18);
+      fill("#ff2d55");
+      text("OUT OF TIME!", sx, sy - 40);
+      pop();
+    }
+  }
+
   draw(): void {
     background(0);
+    const cam = this.camera();
     const shake = this.effects.shakeOffset();
 
-    const numBackgrounds = Math.ceil((width + this.cameraOffset) / 1415) + 1;
+    // Screen-space background with a little parallax from the camera centre.
+    const bgShift = ((cam.centerX * 0.25) % 1415) - 1415;
+    const numBackgrounds = Math.ceil(width / 1415) + 2;
     for (let i = 0; i < numBackgrounds; i++) {
-      image(
-        images.background,
-        i * 1415 - this.cameraOffset + shake.x,
-        shake.y,
-        1415,
-        800
-      );
+      image(images.background, i * 1415 - bgShift + shake.x, shake.y, 1415, 800);
     }
+
     push();
-    translate(-this.cameraOffset + shake.x, shake.y);
+    translate(width / 2 + shake.x, height / 2 + shake.y);
+    scale(cam.scale);
+    translate(-cam.centerX, -cam.centerY);
 
     for (const entity of this.entities) {
       entity.draw();
@@ -200,6 +244,7 @@ export class GameBoard extends GameScreen {
     pop();
 
     this.effects.drawOverlay();
+    this.drawWarnings(cam);
     this.raceManager.draw(
       this.racerHud(),
       this.levelNumber,
