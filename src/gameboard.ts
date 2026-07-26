@@ -190,9 +190,12 @@ export class GameBoard extends GameScreen {
   }
 
   private camera(): Camera {
+    // Follow the smoothly-interpolated heads so the camera and background glide
+    // between grid steps instead of hopping.
+    const heads = this.players.map((p) => p.interpolatedHead());
     return fitCamera(
-      this.players.map((p) => p.trail[0].x),
-      this.players.map((p) => p.trail[0].y),
+      heads.map((h) => h.x),
+      heads.map((h) => h.y),
       width,
       height,
       CAMERA_PADDING,
@@ -226,7 +229,8 @@ export class GameBoard extends GameScreen {
     const shake = this.effects.shakeOffset();
 
     // Screen-space background with a little parallax from the camera centre.
-    const bgShift = ((cam.centerX * 0.25) % 1415) - 1415;
+    // Positive modulo so the tiles always cover the viewport with no seam.
+    const bgShift = (((cam.centerX * 0.25) % 1415) + 1415) % 1415;
     const numBackgrounds = Math.ceil(width / 1415) + 2;
     for (let i = 0; i < numBackgrounds; i++) {
       image(images.background, i * 1415 - bgShift + shake.x, shake.y, 1415, 800);

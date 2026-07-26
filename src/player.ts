@@ -9,6 +9,9 @@ export interface KeyBindings {
 
 export class Player extends Entity {
   public trail: p5.Vector[];
+  // Grid positions before the last step; the drawn snake slides from these to
+  // `trail` so movement looks smooth instead of hopping one cell at a time.
+  private prevTrail: p5.Vector[];
   public playerNumber: number;
   public displayName: string;
   private trailFillColor: string;
@@ -57,6 +60,7 @@ export class Player extends Entity {
       createVector(this.position.x - size.x * 7, this.position.y),
       createVector(this.position.x - size.x * 8, this.position.y),
     ];
+    this.prevTrail = this.trail.map((v) => v.copy());
     this.playerNumber = playerNumber;
     this.displayName = `PLAYER ${playerNumber}`;
     this.trailFillColor = trailFillColor;
@@ -98,6 +102,9 @@ export class Player extends Entity {
     if (this.moveTimer >= 200) {
       this.moveTimer = -100;
 
+      // Snapshot where every segment sat, then step the grid; draw() slides
+      // from this snapshot to the new positions over the next interval.
+      this.prevTrail = this.trail.map((v) => v.copy());
       this.direction = this.nextDirection.copy();
       const head = this.trail[0];
       const newHead = createVector(
@@ -111,6 +118,29 @@ export class Player extends Entity {
     this.handleInput();
   }
 
+  // How far through the current step we are, 0 (just stepped) to 1 (about to
+  // step). The move timer runs from -100 to 200, a 300 ms span.
+  private moveProgress(): number {
+    return Math.max(0, Math.min(1, (this.moveTimer + 100) / 300));
+  }
+
+  // A segment's drawn position: lerped from its previous grid cell to its
+  // current one, so the snake rolls smoothly between cells.
+  private renderPos(i: number): p5.Vector {
+    const t = this.moveProgress();
+    const cur = this.trail[i];
+    const prev = this.prevTrail[i] ?? cur;
+    return createVector(
+      prev.x + (cur.x - prev.x) * t,
+      prev.y + (cur.y - prev.y) * t
+    );
+  }
+
+  // The smoothly-interpolated head position, for the camera to follow.
+  public interpolatedHead(): p5.Vector {
+    return this.renderPos(0);
+  }
+
   draw(): void {
     // Blink while the post-hit cooldown is running so damage reads clearly.
     const sinceHit = Date.now() - this.lastCollisionTime;
@@ -122,7 +152,7 @@ export class Player extends Entity {
     strokeWeight(0);
 
     for (let i = 0; i < this.trail.length; i++) {
-      const position = this.trail[i];
+      const position = this.renderPos(i);
       let diameter = Math.max(this.size.x, this.size.y);
 
       drawingContext.shadowBlur = 15;
