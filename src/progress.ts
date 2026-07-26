@@ -53,4 +53,27 @@ export class Progress {
     }
     return { best: Math.max(total, previous), isNewBest };
   }
+
+  private bestTimeKey(level: number): string {
+    return `furious-snake-best-time-L${level}`;
+  }
+
+  getBestTime(level: number): number | null {
+    const raw = this.storage.getItem(this.bestTimeKey(level));
+    if (raw === null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  recordBestTime(
+    level: number,
+    timeMs: number
+  ): { bestMs: number; isNewBest: boolean } {
+    const prev = this.getBestTime(level);
+    const isNewBest = prev === null || timeMs < prev;
+    if (isNewBest) {
+      this.storage.setItem(this.bestTimeKey(level), String(timeMs));
+    }
+    return { bestMs: isNewBest ? timeMs : (prev as number), isNewBest };
+  }
 }
