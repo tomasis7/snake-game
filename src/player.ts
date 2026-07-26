@@ -14,7 +14,7 @@ export class Player extends Entity {
   private trailFillColor: string;
   private trailStrokeColor: string;
   private moveTimer: number;
-  private pendingGrowth: number;
+  private stunnedUntil: number = 0;
   protected nextDirection: p5.Vector;
   private keyBindings: KeyBindings;
 
@@ -31,9 +31,9 @@ export class Player extends Entity {
     return this.playerNumber;
   }
 
-  // Queues N segments of growth; the trail keeps its tail on the next N moves.
-  public grow(segments: number = 1): void {
-    this.pendingGrowth += segments;
+  // Freezes this racer's movement for the given duration (a hazard penalty).
+  public applyStun(durationMs: number): void {
+    this.stunnedUntil = Date.now() + durationMs;
   }
 
   constructor(
@@ -62,7 +62,6 @@ export class Player extends Entity {
     this.trailFillColor = trailFillColor;
     this.trailStrokeColor = trailStrokeColor;
     this.moveTimer = 0;
-    this.pendingGrowth = 0;
     this.direction = createVector(32, 0);
     this.nextDirection = this.direction.copy();
     this.keyBindings = keyBindings;
@@ -92,6 +91,9 @@ export class Player extends Entity {
     if (!this.isMoving) {
       return;
     }
+    if (Date.now() < this.stunnedUntil) {
+      return;
+    }
     this.moveTimer += deltaTime;
     if (this.moveTimer >= 200) {
       this.moveTimer = -100;
@@ -103,11 +105,7 @@ export class Player extends Entity {
         head.y + this.direction.y
       );
       this.trail.unshift(newHead);
-      if (this.pendingGrowth > 0) {
-        this.pendingGrowth--;
-      } else {
-        this.trail.pop();
-      }
+      this.trail.pop();
     }
 
     this.handleInput();

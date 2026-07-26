@@ -149,7 +149,6 @@ export class CollisionManager {
     sounds.starPickUp.play();
     player.isColliding = true;
 
-    player.grow(1);
     this.effects.burst(star.position.x, star.position.y, "#ffd93b");
     this.maybeTaunt(player, star);
     this.awardPickup(player, star, 100);
@@ -166,7 +165,6 @@ export class CollisionManager {
     player.isColliding = true;
     console.log(`Player ${player.playerNumber} collected a Heart!`);
 
-    player.grow(1);
     this.effects.burst(heart.position.x, heart.position.y, "#e8384f");
     this.maybeTaunt(player, heart);
     this.awardPickup(player, heart, 50);
