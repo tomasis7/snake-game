@@ -39,3 +39,40 @@ export function advanceKillLine(
 ): number {
   return Math.max(prev, leaderX - maxGap);
 }
+
+export interface WorldRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+// The slice of the world currently on screen under a camera, in world units,
+// grown by a margin. Used to cull off-screen entities from the draw loop.
+export function visibleWorldRect(
+  cam: Camera,
+  viewportW: number,
+  viewportH: number,
+  margin: number
+): WorldRect {
+  const halfW = viewportW / 2 / cam.scale + margin;
+  const halfH = viewportH / 2 / cam.scale + margin;
+  return {
+    left: cam.centerX - halfW,
+    right: cam.centerX + halfW,
+    top: cam.centerY - halfH,
+    bottom: cam.centerY + halfH,
+  };
+}
+
+// True when an axis-aligned box (x,y are its top-left; w,h its size) overlaps
+// the rect at all.
+export function intersectsRect(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: WorldRect
+): boolean {
+  return x + w >= r.left && x <= r.right && y + h >= r.top && y <= r.bottom;
+}

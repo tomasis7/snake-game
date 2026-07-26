@@ -6,7 +6,13 @@ import { LevelFactory } from "./levelfactory";
 import { CollisionManager } from "./collisionmanager";
 import { RaceManager, RaceReason, RacerHud } from "./racemanager";
 import { ResultsScreen } from "./resultsscreen";
-import { fitCamera, advanceKillLine, Camera } from "./camera";
+import {
+  fitCamera,
+  advanceKillLine,
+  visibleWorldRect,
+  intersectsRect,
+  Camera,
+} from "./camera";
 import { Ghost } from "./ghost";
 import { WinBlock } from "./winBlock";
 import { GameMode } from "./progress";
@@ -231,8 +237,22 @@ export class GameBoard extends GameScreen {
     scale(cam.scale);
     translate(-cam.centerX, -cam.centerY);
 
+    // Cull off-screen entities: a level has ~900 tiles but only ~70 are ever in
+    // view, and issuing a draw call per off-screen tile is what tanked the frame
+    // rate on software-rendered / high-DPI canvases.
+    const view = visibleWorldRect(cam, width, height, 64);
     for (const entity of this.entities) {
-      entity.draw();
+      if (
+        intersectsRect(
+          entity.position.x,
+          entity.position.y,
+          entity.size.x,
+          entity.size.y,
+          view
+        )
+      ) {
+        entity.draw();
+      }
     }
 
     for (const player of this.players) {
