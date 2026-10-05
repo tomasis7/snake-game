@@ -1,6 +1,6 @@
 [package]
 name = "snake_vk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 build = "build.rs"
 
@@ -8,11 +8,18 @@ build = "build.rs"
 name = "snake_vk"
 path = "src/main.rs"
 
+[features]
+default = []
+# Needs alsa-lib-devel at build time (cpal -> alsa-sys).
+audio = ["dep:rodio"]
+
 [dependencies]
 ash = "0.38"
 winit = "0.30"
 ash-window = "0.13"
 raw-window-handle = "0.6"
+png = "0.17"
+rodio = { version = "0.21", default-features = false, features = ["playback", "symphonia-mp3"], optional = true }
 
 [profile.release]
 opt-level = 3

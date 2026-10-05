@@ -1,9 +1,14 @@
 # Vulkan Snake task list
 
-- [x] Toolchain installed and checked (Vulkan 1.4, GLFW 3.4, glslc, CMake, Rust 1.98; GPU = Intel Iris Xe)
-- [x] Shared spec and shaders (SPEC.md, shaders/)
-- [x] C++ implementation (vulkan/cpp), built and tested
-- [x] Rust implementation (vulkan/rust), built and tested
-- [x] bench.sh plus FPS comparison runs (baseline and x86-64-v2)
-- [x] Investigate Rust's 30% deficit on baseline x86-64 (libm floorf call; fixed by x86-64-v2)
-- [x] Review, results in README, commit and push
+## Round 1: classic snake and FPS comparison (done)
+- [x] Toolchain, shared spec and shaders, C++ and Rust ports, bench.sh, results in README
+
+## Round 2: port the TS "Furious Snake" game (done)
+- [x] Survey TS game, export shared assets (vulkan/tools/), new shaders, SPEC.md v2
+- [x] C++ port (66 tests), Rust port (90 tests), screenshots match the TS game
+- [x] Benchmarks on the real race scene, README updated
+- [x] Fix the stress-quad pattern (it all landed on one diagonal line)
+
+## Open
+- [ ] Rust audio: install alsa-lib-devel, then `cargo build --features audio` (untested)
+- [ ] Optional: a cleaner benchmark run (3+ runs, nothing else running)

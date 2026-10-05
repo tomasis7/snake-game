@@ -1,4 +1,6 @@
+// Furious Snake on Vulkan (C++): window, input, main loops (interactive, bench, screenshot).
 #include <GLFW/glfw3.h>
+#include <stb_image_write.h>
 
 #include <algorithm>
 #include <chrono>
@@ -6,238 +8,315 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <exception>
+#include <memory>
 #include <string>
-#include <vector>
 
+#include "atlas.hpp"
+#include "audio.hpp"
+#include "benchstats.hpp"
+#include "drawlist.hpp"
 #include "game.hpp"
+#include "levels.hpp"
 #include "renderer.hpp"
 
 namespace {
 
-using Clock = std::chrono::steady_clock;
-
-float srgb(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
-
-struct Color {
-    float r, g, b;
-};
-// Hex colours are sRGB; the swapchain is sRGB so the shader output must be linear.
-Color hex(unsigned v) {
-    return {srgb(((v >> 16) & 255) / 255.0f), srgb(((v >> 8) & 255) / 255.0f), srgb((v & 255) / 255.0f)};
-}
-
-constexpr uint32_t BASE_INSTANCES = 1024;  // 400 cells + up to 400 snake + food, with headroom
-
-uint32_t put(Instance* out, uint32_t n, float x, float y, float w, float h, Color c, float a = 1.0f) {
-    out[n] = {{x, y}, {w, h}, {c.r, c.g, c.b, a}};
-    return n + 1;
-}
-
-uint32_t buildScene(Instance* out, const Game& g) {
-    static const Color cellC = hex(0x1e1e2a), headC = hex(0x7CFC00), bodyC = hex(0x32CD32),
-                       foodC = hex(0xFF4757), deadC = hex(0xc0392b);
-    const float cs = 1.0f / GRID;
-    const float inset = 0.05f * cs;
-    const float sz = cs - 2.0f * inset;
-    uint32_t n = 0;
-    for (int y = 0; y < GRID; ++y)
-        for (int x = 0; x < GRID; ++x) n = put(out, n, x * cs + inset, y * cs + inset, sz, sz, cellC);
-    n = put(out, n, g.food().x * cs + inset, g.food().y * cs + inset, sz, sz, foodC);
-    const auto& s = g.snake();
-    for (size_t i = 0; i < s.size(); ++i) {
-        Color c;
-        if (!g.alive()) {
-            c = deadC;
-        } else if (i == 0) {
-            c = headC;
-        } else {
-            float k = 1.0f - 0.4f * (float)i / (float)s.size();  // darker toward the tail
-            c = {bodyC.r * k, bodyC.g * k, bodyC.b * k};
-        }
-        n = put(out, n, s[i].x * cs + inset, s[i].y * cs + inset, sz, sz, c);
-    }
-    return n;
-}
-
-float fractf(float v) { return v - std::floor(v); }
-
-void writeStress(Instance* out, uint32_t n, uint32_t count, float t) {
-    for (uint32_t k = 0; k < count; ++k) {
-        float i = (float)k;
-        float x = fractf(i * 0.6180339f + t * 0.10f);
-        float y = fractf(i * 0.3819660f + t * 0.07f + 0.05f * std::sin(t + i * 0.001f));
-        out[n + k] = {{x, y},
-                      {0.004f, 0.004f},
-                      {fractf(i * 0.13f), fractf(i * 0.37f), fractf(i * 0.71f), 0.6f}};
-    }
-}
-
-struct Input {
-    Game* game = nullptr;
-    bool* paused = nullptr;
-    bool restart = false;
-};
-
-void keyCb(GLFWwindow* w, int key, int, int action, int) {
-    if (action != GLFW_PRESS) return;
-    auto* in = static_cast<Input*>(glfwGetWindowUserPointer(w));
-    switch (key) {
-        case GLFW_KEY_UP: case GLFW_KEY_W: in->game->queueTurn(Dir::Up); break;
-        case GLFW_KEY_DOWN: case GLFW_KEY_S: in->game->queueTurn(Dir::Down); break;
-        case GLFW_KEY_LEFT: case GLFW_KEY_A: in->game->queueTurn(Dir::Left); break;
-        case GLFW_KEY_RIGHT: case GLFW_KEY_D: in->game->queueTurn(Dir::Right); break;
-        case GLFW_KEY_R: case GLFW_KEY_ENTER: in->restart = true; break;
-        case GLFW_KEY_P: case GLFW_KEY_SPACE: *in->paused = !*in->paused; break;
-        case GLFW_KEY_ESCAPE: glfwSetWindowShouldClose(w, GLFW_TRUE); break;
-        default: break;
-    }
-}
-
 struct Args {
     bool bench = false;
     uint32_t quads = 0;
-    double seconds = 10.0;
+    double seconds = 10;
+    int level = 1;
+    std::string screenshot;
+    std::string screen = "menu";
+    double afterMs = 1500;
+    bool mute = false;
 };
 
-Args parseArgs(int argc, char** argv) {
-    Args a;
+bool parseArgs(int argc, char** argv, Args& a) {
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--bench")) a.bench = true;
-        else if (!std::strcmp(argv[i], "--quads") && i + 1 < argc) a.quads = (uint32_t)std::strtoul(argv[++i], nullptr, 10);
-        else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) a.seconds = std::strtod(argv[++i], nullptr);
-        else std::fprintf(stderr, "ignoring unknown argument: %s\n", argv[i]);
+        std::string s = argv[i];
+        auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : nullptr; };
+        const char* v = nullptr;
+        if (s == "--bench") a.bench = true;
+        else if (s == "--mute") a.mute = true;
+        else if (s == "--quads" && (v = next())) a.quads = (uint32_t)std::strtoul(v, nullptr, 10);
+        else if (s == "--seconds" && (v = next())) a.seconds = std::atof(v);
+        else if (s == "--level" && (v = next())) a.level = std::clamp(std::atoi(v), 1, LEVEL_COUNT);
+        else if (s == "--screenshot" && (v = next())) a.screenshot = v;
+        else if (s == "--screen" && (v = next())) a.screen = v;
+        else if (s == "--after-ms" && (v = next())) a.afterMs = std::atof(v);
+        else {
+            std::fprintf(stderr, "bad argument: %s\n", s.c_str());
+            return false;
+        }
     }
-    return a;
+    return true;
 }
 
-double round2(double v) { return std::round(v * 100.0) / 100.0; }
+// ---- input
 
-void printBench(const Renderer& r, const Args& a, const std::vector<double>& ms) {
-    size_t n = ms.size();
-    double sum = 0;
-    for (double v : ms) sum += v;
-    std::vector<double> sorted = ms;
-    std::sort(sorted.begin(), sorted.end());
-    double avgMs = n ? sum / (double)n : 0.0;
-    double avgFps = sum > 0 ? (double)n * 1000.0 / sum : 0.0;
-    size_t idx = n ? (size_t)std::ceil(0.99 * (double)n) - 1 : 0;
-    double p99 = n ? sorted[std::min(idx, n - 1)] : 0.0;
-    size_t k = std::max<size_t>(1, n / 100);
-    double low = 0;
-    for (size_t i = 0; i < k && i < n; ++i) low += sorted[n - 1 - i];
-    low = n ? low / (double)k : 0.0;
-    double p1 = low > 0 ? 1000.0 / low : 0.0;
-    std::printf("{\"impl\":\"cpp\",\"present_mode\":\"%s\",\"quads\":%u,\"seconds\":%g,\"frames\":%zu,"
-                "\"avg_fps\":%.2f,\"p1_low_fps\":%.2f,\"avg_ms\":%.2f,\"p99_ms\":%.2f,\"gpu\":\"%s\"}\n",
-                r.presentModeName(), a.quads, a.seconds, n, round2(avgFps), round2(p1), round2(avgMs),
-                round2(p99), r.gpuName().c_str());
-    std::fflush(stdout);
+struct KeyMap {
+    int glfw;
+    Key key;
+};
+const KeyMap KEYS[] = {
+    {GLFW_KEY_UP, KEY_UP}, {GLFW_KEY_DOWN, KEY_DOWN}, {GLFW_KEY_LEFT, KEY_LEFT}, {GLFW_KEY_RIGHT, KEY_RIGHT},
+    {GLFW_KEY_W, KEY_W}, {GLFW_KEY_A, KEY_A}, {GLFW_KEY_S, KEY_S}, {GLFW_KEY_D, KEY_D},
+    {GLFW_KEY_ENTER, KEY_ENTER}, {GLFW_KEY_KP_ENTER, KEY_ENTER}, {GLFW_KEY_ESCAPE, KEY_ESC},
+    {GLFW_KEY_1, KEY_1}, {GLFW_KEY_2, KEY_2}, {GLFW_KEY_H, KEY_H}, {GLFW_KEY_N, KEY_N},
+    {GLFW_KEY_R, KEY_R}, {GLFW_KEY_M, KEY_M}, {GLFW_KEY_G, KEY_G},
+};
+
+bool g_latched[KEY_COUNT] = {};
+
+void onKey(GLFWwindow*, int key, int, int action, int) {
+    if (action != GLFW_PRESS) return;
+    for (const KeyMap& k : KEYS)
+        if (k.glfw == key) g_latched[k.key] = true;
 }
 
-int run(int argc, char** argv) {
-    Args args = parseArgs(argc, argv);
-
-    if (!glfwInit()) {
-        std::fprintf(stderr, "glfwInit failed\n");
-        return 1;
+Input snapshot(GLFWwindow* w, const Renderer& r) {
+    Input in;
+    for (const KeyMap& k : KEYS)
+        if (glfwGetKey(w, k.glfw) == GLFW_PRESS) in.down[k.key] = true;
+    std::memcpy(in.pressed, g_latched, sizeof in.pressed);
+    in.mouseDown = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    double cx, cy;
+    glfwGetCursorPos(w, &cx, &cy);
+    int ww, wh, fw, fh;
+    glfwGetWindowSize(w, &ww, &wh);
+    glfwGetFramebufferSize(w, &fw, &fh);
+    if (ww > 0 && wh > 0) {
+        IRect cr = r.canvasRect();
+        double px = cx * fw / ww, py = cy * fh / wh;
+        if (cr.w > 0) {
+            in.mouseX = (float)((px - cr.x) / cr.w * 1200.0);
+            in.mouseY = (float)((py - cr.y) / cr.h * 800.0);
+        }
     }
-    if (!glfwVulkanSupported()) {
-        std::fprintf(stderr, "Vulkan not supported by GLFW\n");
-        return 1;
+    return in;
+}
+
+void clearLatched() { std::memset(g_latched, 0, sizeof g_latched); }
+
+double wallSeconds() {
+    using clock = std::chrono::steady_clock;
+    static const auto t0 = clock::now();
+    return std::chrono::duration<double>(clock::now() - t0).count();
+}
+
+float fract(float v) { return v - std::floor(v); }
+
+// ---- modes
+
+int runInteractive(GLFWwindow* win, Renderer& r, Game& game, const Atlas& atlas, uint32_t cap) {
+    double last = wallSeconds(), acc = 0;
+    double fpsStart = last;
+    int fpsFrames = 0;
+    while (!glfwWindowShouldClose(win) && !game.quitRequested()) {
+        glfwPollEvents();
+        double now = wallSeconds();
+        acc += std::min(now - last, 0.1) * 1000.0;
+        last = now;
+
+        Input in = snapshot(win, r);
+        int steps = 0;
+        while (acc >= SIM_DT_MS) {
+            game.update(in);
+            std::memset(in.pressed, 0, sizeof in.pressed);  // an edge is seen by one step only
+            acc -= SIM_DT_MS;
+            ++steps;
+        }
+        if (steps > 0) clearLatched();
+
+        Instance* buf = r.beginFrame();
+        if (!buf) {
+            glfwWaitEventsTimeout(0.05);
+            continue;
+        }
+        DrawList dl(buf, cap, atlas);
+        game.draw(dl, acc);
+        r.endFrame(dl.count());
+
+        ++fpsFrames;
+        if (now - fpsStart >= 0.5) {
+            char title[96];
+            std::snprintf(title, sizeof title, "Furious Snake (C++) | FPS %.0f", fpsFrames / (now - fpsStart));
+            glfwSetWindowTitle(win, title);
+            fpsStart = now;
+            fpsFrames = 0;
+        }
     }
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(800, 800, "Vulkan Snake (C++)", nullptr, nullptr);
-    if (!window) {
-        std::fprintf(stderr, "window creation failed\n");
-        glfwTerminate();
-        return 1;
-    }
+    return 0;
+}
 
-    int rc = 0;
-    {
-        uint32_t quads = args.bench ? args.quads : 0;
-        Renderer renderer(window, BASE_INSTANCES + quads, args.bench);
+int runBench(Renderer& r, Game& game, const Atlas& atlas, uint32_t cap, const Args& args) {
+    constexpr double WARMUP = 2.0;
+    game.setBenchMode(true);
+    game.openRace(args.level, GameMode::OnePlayer, true);
+    game.flush();
 
-        Game game(42);
-        bool paused = false;
-        Input input{&game, &paused, false};
-        glfwSetWindowUserPointer(window, &input);
-        glfwSetKeyCallback(window, keyCb);
+    const double loopStart = wallSeconds();
+    double prev = loopStart, acc = 0, measureStart = 0;
+    bool measuring = false;
+    std::vector<double> frameMs;
+    frameMs.reserve(1 << 16);
+    Input in;
 
-        const double warmup = 2.0;
-        std::vector<double> frameMs;
-        if (args.bench) frameMs.reserve(1 << 20);
-
-        auto start = Clock::now();
-        auto last = start;
-        double acc = 0.0;
-        double titleAcc = 0.0;
-        uint32_t titleFrames = 0;
-        double fps = 0.0;
-
-        while (!glfwWindowShouldClose(window)) {
-            glfwPollEvents();
-            auto now = Clock::now();
-            double dt = std::chrono::duration<double>(now - last).count();
-            last = now;
-            double elapsed = std::chrono::duration<double>(now - start).count();
-
-            if (args.bench && elapsed >= warmup + args.seconds) break;
-
-            if (input.restart) {
-                game.reset();
-                acc = 0;
-                input.restart = false;
-            }
-            if (!paused) {
-                acc += std::min(dt, 0.25);
-                while (acc >= game.tickSeconds()) {
-                    acc -= game.tickSeconds();
-                    if (args.bench) game.queueTurn(autopilot(game));
-                    game.step();
-                    if (args.bench && !game.alive()) game.reset();
-                }
-            }
-
-            titleAcc += dt;
-            ++titleFrames;
-            if (titleAcc >= 0.5) {
-                fps = titleFrames / titleAcc;
-                titleAcc = 0;
-                titleFrames = 0;
-                char buf[128];
-                std::snprintf(buf, sizeof buf, "Vulkan Snake (C++) | Score %d | Best %d | FPS %.0f",
-                              game.score(), game.best(), fps);
-                glfwSetWindowTitle(window, buf);
-            }
-
-            Instance* out = renderer.beginFrame();
-            if (!out) {  // minimised
-                glfwWaitEventsTimeout(0.05);
-                last = Clock::now();
-                continue;
-            }
-            uint32_t n = buildScene(out, game);
-            if (quads) writeStress(out, n, quads, (float)elapsed);
-            renderer.endFrame(n + quads);
-
-            if (args.bench && elapsed >= warmup) frameMs.push_back(dt * 1000.0);
+    for (;;) {
+        glfwPollEvents();
+        double now = wallSeconds();
+        double gap = now - prev;
+        prev = now;
+        double tSec = now - loopStart;
+        if (measuring) {
+            frameMs.push_back(gap * 1000.0);
+            if (now - measureStart >= args.seconds) break;
+        } else if (tSec >= WARMUP) {
+            measuring = true;
+            measureStart = now;
         }
 
-        if (args.bench) printBench(renderer, args, frameMs);
+        acc += std::min(gap, 0.1) * 1000.0;
+        while (acc >= SIM_DT_MS) {
+            game.update(in);
+            acc -= SIM_DT_MS;
+        }
+
+        Instance* buf = r.beginFrame();
+        if (!buf) continue;
+        DrawList dl(buf, cap, atlas);
+        game.draw(dl, acc);
+
+        if (args.quads) {
+            uint32_t n = args.quads;
+            Instance* q = dl.reserve(n);
+            const float t = (float)tSec;
+            for (uint32_t i = 0; i < n; ++i) {
+                const float fi = (float)i;
+                Instance& o = q[i];
+                o.pos[0] = fract(fi * 0.6180339f + t * 0.10f) * 1200.0f;
+                o.pos[1] = fract(fi * 0.7548777f + t * 0.07f + 0.05f * std::sin(t + fi * 0.001f)) * 800.0f;
+                o.size[0] = o.size[1] = 4.8f;
+                o.color[0] = fract(fi * 0.13f);
+                o.color[1] = fract(fi * 0.37f);
+                o.color[2] = fract(fi * 0.71f);
+                o.color[3] = 0.6f;
+                o.uv[0] = o.uv[1] = o.uv[2] = o.uv[3] = 0;
+                o.params[0] = KIND_SOLID;
+                o.params[1] = o.params[2] = o.params[3] = 0;
+            }
+        }
+        r.endFrame(dl.count());
     }
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    return rc;
+    BenchStats st = computeBenchStats(frameMs);
+    std::printf("{\"impl\":\"cpp\",\"present_mode\":\"%s\",\"quads\":%u,\"seconds\":%g,\"frames\":%zu,"
+                "\"avg_fps\":%.2f,\"p1_low_fps\":%.2f,\"avg_ms\":%.2f,\"p99_ms\":%.2f,\"gpu\":\"%s\"}\n",
+                r.presentModeName(), args.quads, args.seconds, st.frames, round2(st.avgFps), round2(st.p1LowFps),
+                round2(st.avgMs), round2(st.p99Ms), r.gpuName().c_str());
+    return 0;
+}
+
+int runScreenshot(GLFWwindow* win, Renderer& r, Game& game, Progress& progress, const Atlas& atlas, uint32_t cap,
+                  const Args& args) {
+    const std::string& s = args.screen;
+    if (s == "menu") {
+    } else if (s == "howto") {
+        game.openHowTo();
+    } else if (s == "countdown") {
+        progress.startRun(GameMode::OnePlayer);
+        game.startLevel(1);
+    } else if (s == "race") {
+        game.openRace(1, GameMode::OnePlayer, true);
+    } else if (s == "results") {
+        game.openResults(1, GameMode::OnePlayer, 1, 42300, BestInfo{42300, true});
+    } else {
+        std::fprintf(stderr, "unknown screen: %s\n", s.c_str());
+        return 2;
+    }
+    game.flush();
+
+    // Let the compositor configure the window before the first frame.
+    for (int i = 0; i < 5; ++i) glfwPollEvents();
+
+    Input in;
+    while (game.now() < args.afterMs) game.update(in);
+
+    for (int attempt = 0; attempt < 120; ++attempt) {
+        glfwPollEvents();
+        Instance* buf = r.beginFrame();
+        if (!buf) continue;
+        DrawList dl(buf, cap, atlas);
+        game.draw(dl, 0.0);
+        Capture cap2;
+        r.endFrame(dl.count(), &cap2);
+        if (cap2.rgba.empty()) continue;
+        if (!stbi_write_png(args.screenshot.c_str(), cap2.width, cap2.height, 4, cap2.rgba.data(), cap2.width * 4)) {
+            std::fprintf(stderr, "cannot write %s\n", args.screenshot.c_str());
+            return 1;
+        }
+        (void)win;
+        return 0;
+    }
+    std::fprintf(stderr, "could not capture a frame\n");
+    return 1;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+    Args args;
+    if (!parseArgs(argc, argv, args)) return 2;
+    const bool screenshot = !args.screenshot.empty();
+
     try {
-        return run(argc, argv);
+        if (!glfwInit()) {
+            std::fprintf(stderr, "glfwInit failed\n");
+            return 1;
+        }
+        if (!glfwVulkanSupported()) {
+            std::fprintf(stderr, "Vulkan not supported by GLFW\n");
+            return 1;
+        }
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        GLFWwindow* win = glfwCreateWindow(1200, 800, "Furious Snake (C++)", nullptr, nullptr);
+        if (!win) {
+            std::fprintf(stderr, "window creation failed\n");
+            return 1;
+        }
+        glfwSetKeyCallback(win, onKey);
+
+        Atlas atlas = buildAtlas(ASSET_DIR);
+        const uint32_t cap = args.quads + 65536;
+        int rc = 0;
+        {
+            Renderer renderer(win, cap, args.bench, atlas);
+
+            std::unique_ptr<Audio> audio;
+            NullAudio nullAudio;
+            IAudio* audioPtr = &nullAudio;
+            if (!args.mute && !args.bench && !screenshot) {
+                audio = Audio::create(PUBLIC_ASSET_DIR);
+                if (audio) audioPtr = audio.get();
+            }
+            Progress progress(args.bench || screenshot ? "" : Progress::defaultPath());
+            uint32_t seed = 42;
+            if (!args.bench && !screenshot)
+                seed = (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count() | 1u;
+            Game game(ASSET_DIR, *audioPtr, progress, seed);
+
+            if (args.bench) rc = runBench(renderer, game, atlas, cap, args);
+            else if (screenshot) rc = runScreenshot(win, renderer, game, progress, atlas, cap, args);
+            else {
+                audioPtr->loopMusic();  // main.ts setup(): music loops from the start
+                rc = runInteractive(win, renderer, game, atlas, cap);
+            }
+        }
+        glfwDestroyWindow(win);
+        glfwTerminate();
+        return rc;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
         return 1;

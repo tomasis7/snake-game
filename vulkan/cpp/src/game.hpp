@@ -1,74 +1,87 @@
 #pragma once
-#include <cstdint>
-#include <deque>
-#include <vector>
+#include <memory>
+#include <optional>
+#include <string>
 
-constexpr int GRID = 20;
+#include "audio_iface.hpp"
+#include "drawlist.hpp"
+#include "progress.hpp"
+#include "rng.hpp"
 
-struct Cell {
-    int x = 0, y = 0;
-    bool operator==(const Cell&) const = default;
+// Fixed simulation step: the p5 deltaTime at frameRate(60).
+constexpr double SIM_DT_MS = 16.667;
+
+enum Key {
+    KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_W, KEY_A, KEY_S, KEY_D,
+    KEY_ENTER, KEY_ESC, KEY_1, KEY_2, KEY_H, KEY_N, KEY_R, KEY_M, KEY_G, KEY_COUNT
 };
 
-enum class Dir { Up, Down, Left, Right };
+// Platform-independent input snapshot. `pressed` is a latched edge (cleared by the caller once a
+// simulation step has consumed it); mouse coordinates are canvas pixels.
+struct Input {
+    bool down[KEY_COUNT] = {};
+    bool pressed[KEY_COUNT] = {};
+    float mouseX = -1, mouseY = -1;
+    bool mouseDown = false;
+};
 
-inline Cell delta(Dir d) {
-    switch (d) {
-        case Dir::Up: return {0, -1};
-        case Dir::Down: return {0, 1};
-        case Dir::Left: return {-1, 0};
-        default: return {1, 0};
-    }
-}
-inline bool opposite(Dir a, Dir b) {
-    return (a == Dir::Up && b == Dir::Down) || (a == Dir::Down && b == Dir::Up) ||
-           (a == Dir::Left && b == Dir::Right) || (a == Dir::Right && b == Dir::Left);
-}
+class Game;
 
-struct XorShift32 {
-    uint32_t s;
-    explicit XorShift32(uint32_t seed = 42) : s(seed ? seed : 1) {}
-    uint32_t next() {
-        s ^= s << 13;
-        s ^= s >> 17;
-        s ^= s << 5;
-        return s;
-    }
+class Screen {
+public:
+    virtual ~Screen() = default;
+    virtual void update(Game& g) = 0;
+    virtual void draw(Game& g, DrawList& dl, double accMs) = 0;
+};
+
+struct BestInfo {
+    double bestMs = 0;
+    bool isNewBest = false;
 };
 
 class Game {
 public:
-    explicit Game(uint32_t seed = 42);
+    Game(std::string assetDir, IAudio& audio, Progress& progress, uint32_t seed);
 
-    void reset();                 // keeps RNG state and best score
-    bool queueTurn(Dir d);        // false if rejected
-    void step();                  // one logic tick (no-op when dead)
+    // One fixed 60 Hz step. Advances the game clock afterwards.
+    void update(const Input& in);
+    void draw(DrawList& dl, double accMs);
 
-    // snake().front() is the head
-    const std::deque<Cell>& snake() const { return snake_; }
-    Cell food() const { return food_; }
-    Dir dir() const { return dir_; }
-    bool alive() const { return alive_; }
-    int score() const { return score_; }
-    int best() const { return best_; }
-    double tickSeconds() const;
-    bool occupied(Cell c) const;
-    Dir lastDir() const { return queue_.empty() ? dir_ : queue_.back(); }
+    void changeScreen(std::unique_ptr<Screen> s) { pending_ = std::move(s); }
+    // Applies a pending screen change right away (for use outside update()).
+    void flush() {
+        if (pending_) current_ = std::move(pending_);
+    }
+    void startRun(GameMode mode);
+    void startLevel(int level);
+    void openMenu();
+    void openHowTo();
+    void openRace(int level, GameMode mode, bool bothRobots);
+    void openResults(int level, GameMode mode, int winner, double humanTimeMs, std::optional<BestInfo> best);
 
-    // Test hook
-    void setState(std::deque<Cell> snake, Dir dir, Cell food);
+    // Bench: both snakes on the robot AI (mistake chance 0), race restarts on the same level when it ends.
+    void setBenchMode(bool on) { bench_ = on; }
+    bool bench() const { return bench_; }
+
+    const std::string& assetDir() const { return assetDir_; }
+    const Input& input() const { return in_; }
+    IAudio& audio() { return audio_; }
+    Progress& progress() { return progress_; }
+    Rng& rng() { return rng_; }
+    double now() const { return now_; }       // game clock, ms
+    bool quitRequested() const { return quit_; }
+    void requestQuit() { quit_ = true; }
+    bool showGrid() const { return showGrid_; }
 
 private:
-    void placeFood();
-
-    XorShift32 rng_;
-    std::deque<Cell> snake_;
-    std::deque<Dir> queue_;
-    Cell food_{};
-    Dir dir_ = Dir::Right;
-    bool alive_ = true;
-    int score_ = 0, best_ = 0;
+    std::string assetDir_;
+    IAudio& audio_;
+    Progress& progress_;
+    Rng rng_;
+    Input in_;
+    double now_ = 0;
+    bool quit_ = false;
+    bool showGrid_ = false;
+    bool bench_ = false;
+    std::unique_ptr<Screen> current_, pending_;
 };
-
-// Greedy autopilot used by the benchmark: steer toward food, avoid walls/body when possible.
-Dir autopilot(const Game& g);

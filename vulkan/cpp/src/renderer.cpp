@@ -22,10 +22,6 @@
 
 namespace {
 
-float srgbToLinear(float c) {
-    return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
-}
-
 std::vector<char> readFile(const std::string& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) throw std::runtime_error("cannot open " + path);
@@ -48,7 +44,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCb(VkDebugUtilsMessageSeverityFlagBitsEXT se
 
 }  // namespace
 
-Renderer::Renderer(GLFWwindow* window, uint32_t maxInstances, bool preferNoVsync)
+Renderer::Renderer(GLFWwindow* window, uint32_t maxInstances, bool preferNoVsync, const Atlas& atlas)
     : window_(window), maxInstances_(maxInstances), preferNoVsync_(preferNoVsync) {
     createInstance();
     VK_CHECK(glfwCreateWindowSurface(instance_, window_, nullptr, &surface_));
@@ -58,7 +54,11 @@ Renderer::Renderer(GLFWwindow* window, uint32_t maxInstances, bool preferNoVsync
     createRenderPass();
     createPipeline();
     createFrames();
-    // Framebuffers need the render pass, so build them now.
+    createAtlasTexture(atlas);
+    createFramebuffers();  // need the render pass, so build them now
+}
+
+void Renderer::createFramebuffers() {
     for (size_t i = 0; i < views_.size(); ++i) {
         VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         fi.renderPass = renderPass_;
@@ -71,6 +71,21 @@ Renderer::Renderer(GLFWwindow* window, uint32_t maxInstances, bool preferNoVsync
     }
 }
 
+IRect Renderer::canvasRect() const {
+    int w = (int)extent_.width, h = (int)extent_.height;
+    IRect r;
+    if (w * 2 > h * 3) {  // wider than 3:2: pillarbox
+        r.h = h;
+        r.w = h * 3 / 2;
+    } else {
+        r.w = w;
+        r.h = w * 2 / 3;
+    }
+    r.x = (w - r.w) / 2;
+    r.y = (h - r.h) / 2;
+    return r;
+}
+
 Renderer::~Renderer() {
     vkDeviceWaitIdle(device_);
     for (auto& f : frames_) {
@@ -81,9 +96,15 @@ Renderer::~Renderer() {
         vkDestroyFence(device_, f.fence, nullptr);
     }
     vkDestroyCommandPool(device_, pool_, nullptr);
+    vkDestroyDescriptorPool(device_, descPool_, nullptr);
+    vkDestroySampler(device_, sampler_, nullptr);
+    vkDestroyImageView(device_, atlasView_, nullptr);
+    vkDestroyImage(device_, atlasImage_, nullptr);
+    vkFreeMemory(device_, atlasMemory_, nullptr);
     destroySwapchain(false);
     vkDestroyPipeline(device_, pipeline_, nullptr);
     vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
+    vkDestroyDescriptorSetLayout(device_, setLayout_, nullptr);
     vkDestroyRenderPass(device_, renderPass_, nullptr);
     vkDestroyDevice(device_, nullptr);
     vkDestroySurfaceKHR(instance_, surface_, nullptr);
@@ -227,7 +248,7 @@ void Renderer::createSwapchain() {
     vkGetPhysicalDeviceSurfaceFormatsKHR(phys_, surface_, &n, fmts.data());
     VkSurfaceFormatKHR chosen = fmts[0];
     for (auto& f : fmts)
-        if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        if (f.format == VK_FORMAT_B8G8R8A8_UNORM && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
             chosen = f;
     format_ = chosen.format;
 
@@ -267,7 +288,8 @@ void Renderer::createSwapchain() {
     ci.imageColorSpace = chosen.colorSpace;
     ci.imageExtent = extent_;
     ci.imageArrayLayers = 1;
-    ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    canCapture_ = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (canCapture_ ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = alpha;
@@ -320,16 +342,7 @@ void Renderer::recreateSwapchain() {
     if (!framebufferSizeValid()) return;
     destroySwapchain(true);
     createSwapchain();
-    for (size_t i = 0; i < views_.size(); ++i) {
-        VkFramebufferCreateInfo fi{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        fi.renderPass = renderPass_;
-        fi.attachmentCount = 1;
-        fi.pAttachments = &views_[i];
-        fi.width = extent_.width;
-        fi.height = extent_.height;
-        fi.layers = 1;
-        VK_CHECK(vkCreateFramebuffer(device_, &fi, nullptr, &framebuffers_[i]));
-    }
+    createFramebuffers();
 }
 
 void Renderer::createRenderPass() {
@@ -387,15 +400,17 @@ void Renderer::createPipeline() {
     stages[1].pName = "main";
 
     VkVertexInputBindingDescription bind{0, sizeof(Instance), VK_VERTEX_INPUT_RATE_INSTANCE};
-    VkVertexInputAttributeDescription attrs[3] = {
+    VkVertexInputAttributeDescription attrs[5] = {
         {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Instance, pos)},
         {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Instance, size)},
         {2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Instance, color)},
+        {3, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Instance, uv)},
+        {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Instance, params)},
     };
     VkPipelineVertexInputStateCreateInfo vin{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vin.vertexBindingDescriptionCount = 1;
     vin.pVertexBindingDescriptions = &bind;
-    vin.vertexAttributeDescriptionCount = 3;
+    vin.vertexAttributeDescriptionCount = 5;
     vin.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -433,7 +448,22 @@ void Renderer::createPipeline() {
     ds.dynamicStateCount = 2;
     ds.pDynamicStates = dyn;
 
+    VkDescriptorSetLayoutBinding dsb{};
+    dsb.binding = 0;
+    dsb.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    dsb.descriptorCount = 1;
+    dsb.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutCreateInfo dli{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    dli.bindingCount = 1;
+    dli.pBindings = &dsb;
+    VK_CHECK(vkCreateDescriptorSetLayout(device_, &dli, nullptr, &setLayout_));
+
+    VkPushConstantRange pcr{VK_SHADER_STAGE_VERTEX_BIT, 0, 2 * sizeof(float)};
     VkPipelineLayoutCreateInfo li{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    li.setLayoutCount = 1;
+    li.pSetLayouts = &setLayout_;
+    li.pushConstantRangeCount = 1;
+    li.pPushConstantRanges = &pcr;
     VK_CHECK(vkCreatePipelineLayout(device_, &li, nullptr, &pipelineLayout_));
 
     VkGraphicsPipelineCreateInfo pi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -513,7 +543,7 @@ Instance* Renderer::beginFrame() {
     return f.mapped;
 }
 
-void Renderer::endFrame(uint32_t count) {
+void Renderer::endFrame(uint32_t count, Capture* capture) {
     Frame& f = frames_[frameIndex_];
     uint32_t img = 0;
     VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, f.imageAvailable,
@@ -531,11 +561,8 @@ void Renderer::endFrame(uint32_t count) {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(f.cmd, &bi));
 
-    // Clear colour #14141c; swapchain is (usually) sRGB so convert to linear.
-    bool srgb = (format_ == VK_FORMAT_B8G8R8A8_SRGB || format_ == VK_FORMAT_R8G8B8A8_SRGB);
-    auto cv = [&](int v) { float c = (float)v / 255.0f; return srgb ? srgbToLinear(c) : c; };
     VkClearValue clear{};
-    clear.color = {{cv(0x14), cv(0x14), cv(0x1c), 1.0f}};
+    clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     VkRenderPassBeginInfo rp{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     rp.renderPass = renderPass_;
     rp.framebuffer = framebuffers_[img];
@@ -544,14 +571,46 @@ void Renderer::endFrame(uint32_t count) {
     rp.pClearValues = &clear;
     vkCmdBeginRenderPass(f.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
     vkCmdBindPipeline(f.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    VkViewport vp{0, 0, (float)extent_.width, (float)extent_.height, 0.0f, 1.0f};
-    VkRect2D sc{{0, 0}, extent_};
+    // Letterbox: the 1200 x 800 canvas fills the largest centred 3:2 rect.
+    IRect cr = canvasRect();
+    VkViewport vp{(float)cr.x, (float)cr.y, (float)cr.w, (float)cr.h, 0.0f, 1.0f};
+    VkRect2D sc{{cr.x, cr.y}, {(uint32_t)cr.w, (uint32_t)cr.h}};
     vkCmdSetViewport(f.cmd, 0, 1, &vp);
     vkCmdSetScissor(f.cmd, 0, 1, &sc);
+    float canvasSize[2] = {1200.0f, 800.0f};
+    vkCmdPushConstants(f.cmd, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof canvasSize, canvasSize);
+    vkCmdBindDescriptorSets(f.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSet_, 0, nullptr);
     VkDeviceSize off = 0;
     vkCmdBindVertexBuffers(f.cmd, 0, 1, &f.buffer, &off);
     vkCmdDraw(f.cmd, 6, std::min(count, maxInstances_), 0, 0);
     vkCmdEndRenderPass(f.cmd);
+
+    VkBuffer capBuf{};
+    VkDeviceMemory capMem{};
+    if (capture && canCapture_) {
+        createBuffer((VkDeviceSize)cr.w * cr.h * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, capBuf, capMem);
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = images_[img];
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(f.cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &b);
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset = {cr.x, cr.y, 0};
+        region.imageExtent = {(uint32_t)cr.w, (uint32_t)cr.h, 1};
+        vkCmdCopyImageToBuffer(f.cmd, images_[img], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, capBuf, 1, &region);
+        b.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        b.dstAccessMask = 0;
+        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        vkCmdPipelineBarrier(f.cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &b);
+    }
     VK_CHECK(vkEndCommandBuffer(f.cmd));
 
     VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -564,6 +623,22 @@ void Renderer::endFrame(uint32_t count) {
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = &renderFinished_[img];
     VK_CHECK(vkQueueSubmit(queue_, 1, &si, f.fence));
+
+    if (capBuf) {
+        VK_CHECK(vkWaitForFences(device_, 1, &f.fence, VK_TRUE, UINT64_MAX));
+        void* p = nullptr;
+        VK_CHECK(vkMapMemory(device_, capMem, 0, VK_WHOLE_SIZE, 0, &p));
+        capture->width = cr.w;
+        capture->height = cr.h;
+        capture->rgba.resize((size_t)cr.w * cr.h * 4);
+        std::memcpy(capture->rgba.data(), p, capture->rgba.size());
+        vkUnmapMemory(device_, capMem);
+        vkDestroyBuffer(device_, capBuf, nullptr);
+        vkFreeMemory(device_, capMem, nullptr);
+        if (format_ == VK_FORMAT_B8G8R8A8_UNORM || format_ == VK_FORMAT_B8G8R8A8_SRGB)
+            for (size_t i = 0; i < capture->rgba.size(); i += 4) std::swap(capture->rgba[i], capture->rgba[i + 2]);
+        for (size_t i = 3; i < capture->rgba.size(); i += 4) capture->rgba[i] = 255;
+    }
 
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
@@ -578,4 +653,124 @@ void Renderer::endFrame(uint32_t count) {
     } else {
         VK_CHECK(r);
     }
+}
+
+void Renderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer& buf, VkDeviceMemory& mem) {
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = size;
+    bi.usage = usage;
+    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VK_CHECK(vkCreateBuffer(device_, &bi, nullptr, &buf));
+    VkMemoryRequirements mr;
+    vkGetBufferMemoryRequirements(device_, buf, &mr);
+    VkMemoryAllocateInfo mi{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mi.allocationSize = mr.size;
+    mi.memoryTypeIndex = findMemoryType(mr.memoryTypeBits,
+                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    VK_CHECK(vkAllocateMemory(device_, &mi, nullptr, &mem));
+    VK_CHECK(vkBindBufferMemory(device_, buf, mem, 0));
+}
+
+// Uploads the CPU atlas once through a staging buffer and binds it as set 0, binding 0.
+void Renderer::createAtlasTexture(const Atlas& atlas) {
+    VkDeviceSize bytes = (VkDeviceSize)atlas.width * atlas.height * 4;
+    VkBuffer staging{};
+    VkDeviceMemory stagingMem{};
+    createBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMem);
+    void* p = nullptr;
+    VK_CHECK(vkMapMemory(device_, stagingMem, 0, VK_WHOLE_SIZE, 0, &p));
+    std::memcpy(p, atlas.rgba.data(), (size_t)bytes);
+    vkUnmapMemory(device_, stagingMem);
+
+    VkImageCreateInfo ii{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ii.imageType = VK_IMAGE_TYPE_2D;
+    ii.format = VK_FORMAT_R8G8B8A8_UNORM;
+    ii.extent = {(uint32_t)atlas.width, (uint32_t)atlas.height, 1};
+    ii.mipLevels = 1;
+    ii.arrayLayers = 1;
+    ii.samples = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VK_CHECK(vkCreateImage(device_, &ii, nullptr, &atlasImage_));
+    VkMemoryRequirements mr;
+    vkGetImageMemoryRequirements(device_, atlasImage_, &mr);
+    VkMemoryAllocateInfo mi{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    mi.allocationSize = mr.size;
+    mi.memoryTypeIndex = findMemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    VK_CHECK(vkAllocateMemory(device_, &mi, nullptr, &atlasMemory_));
+    VK_CHECK(vkBindImageMemory(device_, atlasImage_, atlasMemory_, 0));
+
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ai.commandPool = pool_;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cmd;
+    VK_CHECK(vkAllocateCommandBuffers(device_, &ai, &cmd));
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_CHECK(vkBeginCommandBuffer(cmd, &bi));
+
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = atlasImage_;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &b);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {(uint32_t)atlas.width, (uint32_t)atlas.height, 1};
+    vkCmdCopyBufferToImage(cmd, staging, atlasImage_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &b);
+    VK_CHECK(vkEndCommandBuffer(cmd));
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cmd;
+    VK_CHECK(vkQueueSubmit(queue_, 1, &si, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueWaitIdle(queue_));
+    vkFreeCommandBuffers(device_, pool_, 1, &cmd);
+    vkDestroyBuffer(device_, staging, nullptr);
+    vkFreeMemory(device_, stagingMem, nullptr);
+
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = atlasImage_;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = VK_FORMAT_R8G8B8A8_UNORM;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VK_CHECK(vkCreateImageView(device_, &vi, nullptr, &atlasView_));
+
+    VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sci.maxLod = 0.0f;
+    VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &sampler_));
+
+    VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    VkDescriptorPoolCreateInfo dpi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    dpi.maxSets = 1;
+    dpi.poolSizeCount = 1;
+    dpi.pPoolSizes = &ps;
+    VK_CHECK(vkCreateDescriptorPool(device_, &dpi, nullptr, &descPool_));
+    VkDescriptorSetAllocateInfo dai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    dai.descriptorPool = descPool_;
+    dai.descriptorSetCount = 1;
+    dai.pSetLayouts = &setLayout_;
+    VK_CHECK(vkAllocateDescriptorSets(device_, &dai, &descSet_));
+    VkDescriptorImageInfo dii{sampler_, atlasView_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    w.dstSet = descSet_;
+    w.dstBinding = 0;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w.pImageInfo = &dii;
+    vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
 }

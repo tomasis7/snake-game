@@ -1,26 +1,42 @@
-# Vulkan Snake: C++ vs Rust
+# Furious Snake on Vulkan: C++ vs Rust
 
-The same Snake game written twice against raw Vulkan, once in C++20 with GLFW and once in Rust
-with `ash` and `winit`, so their frame rates can be compared fairly. Both follow
-[SPEC.md](SPEC.md): the same shaders, one instanced draw call, 2 frames in flight, the same game
-rules and the same benchmark mode.
+The TypeScript/p5.js game in `src/` ported twice to raw Vulkan, once in C++20 with GLFW and once in
+Rust with `ash` and `winit`, both following [SPEC.md](SPEC.md). Both ports include:
+- **Screens:** the menu, how to play, countdown, the two-snake race and results.
+- **Gameplay:** the robot rival, all 3 levels, hearts, stars, plants and the ghost, the kill line, the zooming camera and the HUD.
+- **Look:** the TS game's own pixel-art sprites, Press Start 2P font, parallax background and effects.
+
+The two ports render identically: their screenshots match the TS game and each other.
+
+Shared data is exported from the TS source, so there is one source of truth. To regenerate it:
+`node vulkan/tools/export_data.mjs && python3 vulkan/tools/export_images.py`. The outputs are:
+- `assets/levels/*.txt`
+- `assets/sprites.txt`
+- `assets/font.png`
+- `assets/background.png`
 
 ## Run
 
 Needs: `vulkan-headers vulkan-loader-devel vulkan-validation-layers glfw-devel glslc cmake rust cargo`.
+Rust audio also needs `alsa-lib-devel`; then build with `--features audio`.
 
 ```bash
-# C++
+# C++ (audio via miniaudio)
 cmake -S vulkan/cpp -B vulkan/cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build vulkan/cpp/build -j
-vulkan/cpp/build/snake_vk
-ctest --test-dir vulkan/cpp/build
+vulkan/cpp/build/snake_vk            # ctest --test-dir vulkan/cpp/build
 
 # Rust
-cd vulkan/rust && cargo run --release
-cargo test
+cd vulkan/rust && cargo run --release  # cargo test
 ```
 
-Controls: arrow keys or WASD to steer, P or Space to pause, R or Enter to restart, Esc to quit.
+Controls:
+- **Race:** P1 uses the arrow keys and P2 uses WASD. G toggles the debug grid and Esc returns to the menu.
+- **Menus:** click with the mouse, or use the keys: 1/2 pick the mode, Enter starts, H opens how to play, R retries and N goes to the next level.
+
+Extra flags:
+- `--mute` turns off sound.
+- `--screenshot out.png --screen menu|howto|countdown|race|results` saves a screenshot.
+- `--bench [--quads N] [--seconds S] [--level L]` runs the benchmark.
 
 ## Benchmark
 
@@ -29,41 +45,30 @@ vulkan/bench.sh [seconds] [runs]                # baseline x86-64
 CPU=x86-64-v2 vulkan/bench.sh [seconds] [runs]  # same CPU target for both compilers
 ```
 
-Bench mode (`--bench --quads N --seconds S`) disables vsync with IMMEDIATE present mode and lets
-an autopilot play. Every frame it also writes N animated "stress" quads from the CPU into the
-mapped instance buffer. Runs alternate between the two binaries.
+Bench mode plays the level-1 race with both snakes on the robot AI (seed 42), with vsync off.
+It can also write N extra "stress" quads from the CPU each frame.
 
-### Results: Intel Iris Xe (TGL GT2), Mesa, Wayland, 10 s × 2 runs
+### Round 2, the full Furious Snake scene: Intel Iris Xe, 10 s x 2 runs
 
-Baseline x86-64 (default compiler settings):
+| quads | baseline C++ | baseline Rust | x86-64-v2 C++ | x86-64-v2 Rust |
+|------:|----:|----:|----:|----:|
+| 0 | ~2,600–3,200* | ~2,600–3,000* | 2,537 | 2,358 |
+| 10,000 | 606 | 486 (−20%) | 807 | 957 (+19%) |
+| 100,000 | 129 | 90 (−30%) | 180 | 160 (−11%) |
 
-| quads | C++ FPS | Rust FPS | Rust vs C++ |
-|------:|--------:|---------:|------------:|
-| 0 | 3950 | 3827 | −3% |
-| 10,000 | 897 | 684 | −24% |
-| 100,000 | 147 | 101 | −31% |
+\* The 0-quad baseline row in the full run was ruined by a system hitch (554 and 559 FPS with 25 FPS
+lows). These are standalone 5-second reruns instead.
 
-`CPU=x86-64-v2` (both compilers):
+Run-to-run noise on this laptop is about ±10%, so the gaps at 0 and 100k quads on v2 are within noise.
+- **Baseline x86-64, Rust is 20–30% behind under CPU load.** Rust/LLVM compiles `f32::floor` as a
+  call to libm's `floorf` when SSE4.1 isn't available, while GCC inlines it. A plain-RAM
+  microbenchmark of the stress loop alone shows the same 6.4 ms vs 9.3 ms gap.
+- **With x86-64-v2 for both,** the codegen gap disappears. The two are roughly even, and Rust leads in the 10k case.
+- **Without stress quads,** both reach 2,000–3,000 FPS with a full game scene: sprites, text,
+  gradient snakes, particles and the robot AI. The language barely matters for the Vulkan side.
 
-| quads | C++ FPS | Rust FPS | Rust vs C++ |
-|------:|--------:|---------:|------------:|
-| 0 | 3868 | 3764 | −3% |
-| 10,000 | 1205 | 1377 | **+14%** |
-| 100,000 | 210 | 250 | **+19%** |
+(The stress pattern's y multiplier changed after these runs, from 0.382 to 0.755. The old value
+lined every quad up on one diagonal stripe; the GPU cost is the same.)
 
-### What explains the numbers
-
-- **Empty scene (0 quads):** both run at about 3,800–3,950 FPS, within noise of each other. Here the
-  frame cost is mostly the driver and the compositor, and the language makes no difference.
-- **Baseline x86-64, Rust is about 30% slower.** The stress loop calls `floor` five times per quad.
-  Without SSE4.1, Rust/LLVM compiles `f32::floor` as a **call to libm's `floorf`**, while GCC
-  inlines `std::floor` with a short `cvttss2si`/`cvtsi2ss` sequence. A plain-RAM microbenchmark of the
-  loop alone gives 6.4 ms vs 9.3 ms per 100k quads, which is exactly the in-game gap. So the renderers
-  are equal and the difference is codegen for a single function.
-- **x86-64-v2 (SSE4.1), Rust is 14–19% faster.** Both compilers now emit `roundss` for floor, and
-  LLVM vectorises the rest of the loop better than GCC (microbenchmark: 3.2 ms vs 3.8 ms). Both
-  versions also get 35–150% faster just from the CPU target.
-
-In short, the language barely matters for Vulkan itself, because the GPU and driver do the heavy
-lifting. CPU-side codegen details, such as the target CPU level and how `floor` is compiled,
-matter far more than C++ vs Rust.
+### Round 1, classic 20x20 snake (earlier commit)
+Baseline: Rust −3% / −24% / −31% at 0 / 10k / 100k quads. x86-64-v2: −3% / +14% / +19%.
