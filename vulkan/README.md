@@ -70,5 +70,22 @@ Run-to-run noise on this laptop is about ±10%, so the gaps at 0 and 100k quads 
 (The stress pattern's y multiplier changed after these runs, from 0.382 to 0.755. The old value
 lined every quad up on one diagonal stripe; the GPU cost is the same.)
 
+### vs the original TypeScript/p5.js game in Chrome
+I measured once in Chrome 156 on the same laptop. As in the Vulkan bench, both snakes were on the
+robot AI in the level-1 race, after a 2 s warm-up. The browser caps p5 at the display's refresh rate,
+so I stopped the loop with `noLoop()` and called `redraw()` back to back for 10 s, with a fixed
+16.67 ms `deltaTime`:
+
+| | avg frame | FPS from frame cost | 1% low |
+|---|---:|---:|---:|
+| TS p5.js (Canvas 2D) | 5.59 ms | **~180** (actual loop: 112) | 32 |
+| C++ / Rust (Vulkan) | 0.3–0.4 ms | **~2,400–3,200** | ~260–350 |
+
+On the same scene, the Vulkan ports do each frame about 15x faster. Every sprite, ball and glyph is
+a separate Canvas 2D call in p5, while Vulkan sends one instanced draw per frame. In normal play the TS
+game runs at `frameRate(60)` with plenty of headroom, so all three feel the same on a 60 Hz screen.
+The browser number is main-thread time only: Chrome rasterises the canvas in its GPU process, so the
+real cost is a bit higher.
+
 ### Round 1, classic 20x20 snake (earlier commit)
 Baseline: Rust −3% / −24% / −31% at 0 / 10k / 100k quads. x86-64-v2: −3% / +14% / +19%.
