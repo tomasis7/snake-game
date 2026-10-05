@@ -10,5 +10,5 @@
 - [x] Fix the stress-quad pattern (it all landed on one diagonal line)
 
 ## Open
-- [ ] Rust audio: install alsa-lib-devel, then `cargo build --features audio` (untested)
+- [x] Rust audio: alsa-lib-devel installed, `audio` is now a default feature, builds and runs
 - [ ] Optional: a cleaner benchmark run (3+ runs, nothing else running)

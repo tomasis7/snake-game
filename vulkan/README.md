@@ -18,7 +18,7 @@ Shared data is exported from the TS source, so there is one source of truth. To 
 ## Run
 
 Needs: `vulkan-headers vulkan-loader-devel vulkan-validation-layers glfw-devel glslc cmake rust cargo`.
-Rust audio also needs `alsa-lib-devel`; then build with `--features audio`.
+Rust audio also needs `alsa-lib-devel` (on by default; use `--no-default-features` to build without sound).
 
 ```bash
 # C++ (audio via miniaudio)

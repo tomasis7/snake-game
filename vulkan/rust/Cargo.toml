@@ -9,8 +9,8 @@ name = "snake_vk"
 path = "src/main.rs"
 
 [features]
-default = []
-# Needs alsa-lib-devel at build time (cpal -> alsa-sys).
+default = ["audio"]
+# Needs alsa-lib-devel at build time (cpal -> alsa-sys); build with --no-default-features without it.
 audio = ["dep:rodio"]
 
 [dependencies]
