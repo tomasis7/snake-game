@@ -27,3 +27,5 @@ pnpm-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+vulkan/cpp/build*/
+vulkan/rust/target/

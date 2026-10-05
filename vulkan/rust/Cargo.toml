@@ -1,0 +1,18 @@
+[package]
+name = "snake_vk"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[[bin]]
+name = "snake_vk"
+path = "src/main.rs"
+
+[dependencies]
+ash = "0.38"
+winit = "0.30"
+ash-window = "0.13"
+raw-window-handle = "0.6"
+
+[profile.release]
+opt-level = 3
