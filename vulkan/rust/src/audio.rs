@@ -2,7 +2,7 @@
 //! Without the feature, or without an audio device, one warning is printed and the game
 //! continues silently.
 
-use crate::sound::Sound;
+use furious_core::sound::Sound;
 
 #[cfg(feature = "audio")]
 mod imp {

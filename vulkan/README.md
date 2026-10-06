@@ -87,5 +87,26 @@ game runs at `frameRate(60)` with plenty of headroom, so all three feel the same
 The browser number is main-thread time only: Chrome rasterises the canvas in its GPU process, so the
 real cost is a bit higher.
 
+### Rust → WASM + WebGPU in Chrome (`vulkan/web`, see [WEB.md](WEB.md))
+The same Rust game code, shared through `vulkan/core`, compiled to WebAssembly and drawn with
+`wgpu`. It uses WebGPU and falls back to WebGL2 when WebGPU is unavailable. Build it with
+`vulkan/web/build.sh`, serve it with `python3 -m http.server 8642 -d vulkan/web/dist` and open
+`http://127.0.0.1:8642/`. Add `?bench&seconds=10` to the URL for the benchmark.
+
+One 10 s bench run in Chrome 156 on WebGPU, on the same robot-vs-robot level-1 race. It renders
+offscreen with 2 frames in flight, so it isn't capped by the display:
+
+| Version | avg frame | avg FPS | 1% low |
+|---|---:|---:|---:|
+| TS p5.js (Canvas 2D) | 5.59 ms | ~180 | 32 |
+| **Rust → WASM + WebGPU** | **0.92 ms** | **1,081** | **505** |
+| C++ / Rust native Vulkan | 0.3–0.4 ms | ~2,400–3,200 | ~260–350 |
+
+In the browser, WASM + WebGPU is about 6x faster than p5.js, with much steadier frames: its 1% low
+beats both native versions. Native Vulkan is still about 2.5–3x faster on average, because it has
+no browser compositor, JS/WASM boundary or WebGPU validation layer in the way.
+
+The WebGL2 fallback is built but untested here, because this Chrome has WebGPU enabled.
+
 ### Round 1, classic 20x20 snake (earlier commit)
 Baseline: Rust −3% / −24% / −31% at 0 / 10k / 100k quads. x86-64-v2: −3% / +14% / +19%.

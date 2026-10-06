@@ -6,9 +6,9 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::ffi::{c_char, c_void, CStr};
 use std::io::Cursor;
 
-use crate::atlas::ATLAS_SIZE;
-use crate::instance::Instance;
-use crate::viewport::{Letterbox, CANVAS_H, CANVAS_W};
+use furious_core::atlas::ATLAS_SIZE;
+use furious_core::instance::Instance;
+use furious_core::viewport::{Letterbox, CANVAS_H, CANVAS_W};
 
 const FRAMES_IN_FLIGHT: usize = 2;
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";

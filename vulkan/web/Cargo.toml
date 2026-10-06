@@ -1,0 +1,26 @@
+[package]
+name = "furious_web"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+furious_core = { path = "../core" }
+wgpu = { version = "25", default-features = false, features = ["webgpu", "webgl", "wgsl"] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "HtmlAudioElement",
+    "HtmlMediaElement", "KeyboardEvent", "MouseEvent", "Event", "EventTarget", "Performance",
+    "Storage", "Location", "Navigator", "UrlSearchParams", "Node", "CssStyleDeclaration",
+    "MessageChannel", "MessagePort", "console", "DomRect",
+] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

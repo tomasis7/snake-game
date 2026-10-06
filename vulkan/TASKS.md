@@ -12,3 +12,9 @@
 ## Open
 - [x] Rust audio: alsa-lib-devel installed, `audio` is now a default feature, builds and runs
 - [ ] Optional: a cleaner benchmark run (3+ runs, nothing else running)
+
+## Round 3: Rust → WASM + WebGPU (done)
+- [x] Shared `vulkan/core` crate (native Rust unchanged, 91 tests)
+- [x] `vulkan/web`: wgpu WebGPU with WebGL2 fallback, quad.wgsl, browser input and audio
+- [x] Checked in Chrome: menu, countdown and race render; bench 1,081 FPS
+- [ ] WebGL2 fallback not exercised (this Chrome has WebGPU on)

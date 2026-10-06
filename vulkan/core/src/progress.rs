@@ -11,11 +11,36 @@ pub enum GameMode {
     TwoPlayer,
 }
 
+/// Where best times are persisted. The native app uses a file, the web app localStorage.
+pub trait BestStore {
+    fn load(&self) -> HashMap<u32, f64>;
+    fn save(&self, best: &HashMap<u32, f64>);
+}
+
+/// `L<n> <ms>` lines in a text file.
+pub struct FileStore(pub PathBuf);
+
+impl BestStore for FileStore {
+    fn load(&self) -> HashMap<u32, f64> {
+        std::fs::read_to_string(&self.0).ok().map(|t| parse_best_times(&t)).unwrap_or_default()
+    }
+
+    fn save(&self, best: &HashMap<u32, f64>) {
+        if let Some(dir) = self.0.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let mut levels: Vec<_> = best.iter().collect();
+        levels.sort_by_key(|(l, _)| **l);
+        let text: String = levels.iter().map(|(l, ms)| format!("L{} {}\n", l, **ms as i64)).collect();
+        let _ = std::fs::write(&self.0, text);
+    }
+}
+
 pub struct Progress {
     pub mode: GameMode,
     pub current_level: u32,
     best: HashMap<u32, f64>,
-    path: Option<PathBuf>,
+    store: Option<Box<dyn BestStore>>,
 }
 
 pub fn default_path() -> Option<PathBuf> {
@@ -45,12 +70,12 @@ pub fn parse_best_times(text: &str) -> HashMap<u32, f64> {
 impl Progress {
     /// `path = None` keeps everything in memory (bench, screenshots, tests).
     pub fn new(path: Option<PathBuf>) -> Self {
-        let best = path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|t| parse_best_times(&t))
-            .unwrap_or_default();
-        Progress { mode: GameMode::OnePlayer, current_level: 1, best, path }
+        Self::with_store(path.map(|p| Box::new(FileStore(p)) as Box<dyn BestStore>))
+    }
+
+    pub fn with_store(store: Option<Box<dyn BestStore>>) -> Self {
+        let best = store.as_ref().map(|s| s.load()).unwrap_or_default();
+        Progress { mode: GameMode::OnePlayer, current_level: 1, best, store }
     }
 
     pub fn start_run(&mut self, mode: GameMode) {
@@ -58,7 +83,6 @@ impl Progress {
         self.current_level = 1;
     }
 
-    #[allow(dead_code)] // part of the TS API
     pub fn is_last_level(&self) -> bool {
         self.current_level >= 3
     }
@@ -80,14 +104,9 @@ impl Progress {
     }
 
     fn save(&self) {
-        let Some(path) = &self.path else { return };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+        if let Some(store) = &self.store {
+            store.save(&self.best);
         }
-        let mut levels: Vec<_> = self.best.iter().collect();
-        levels.sort_by_key(|(l, _)| **l);
-        let text: String = levels.iter().map(|(l, ms)| format!("L{} {}\n", l, **ms as i64)).collect();
-        let _ = std::fs::write(path, text);
     }
 }
 

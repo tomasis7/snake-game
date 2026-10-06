@@ -14,6 +14,7 @@ default = ["audio"]
 audio = ["dep:rodio"]
 
 [dependencies]
+furious_core = { path = "../core", package = "furious_core" }
 ash = "0.38"
 winit = "0.30"
 ash-window = "0.13"

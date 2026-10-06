@@ -29,3 +29,7 @@ pnpm-debug.log*
 Thumbs.db
 vulkan/cpp/build*/
 vulkan/rust/target/
+
+vulkan/web/dist/
+vulkan/web/target/
+vulkan/core/target/

@@ -47,10 +47,15 @@ pub struct Game {
 impl Game {
     /// The interactive game, opening on the menu with the background music looping.
     pub fn new(progress_path: Option<PathBuf>, rng: Rng) -> Game {
+        Game::with_progress(Progress::new(progress_path), rng)
+    }
+
+    /// Like `new`, with a caller-built `Progress` (for example one backed by localStorage).
+    pub fn with_progress(progress: Progress, rng: Rng) -> Game {
         let input = Input::default();
         Game {
             screen: Screen::Menu(StartMenu::new(&input)),
-            progress: Progress::new(progress_path),
+            progress,
             clock: 0.0,
             rng,
             sounds: vec![Sound::MusicLoop],

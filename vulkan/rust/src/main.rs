@@ -1,29 +1,5 @@
-mod atlas;
 mod audio;
-mod board;
-mod button;
-mod camera;
-mod collision;
-mod draw;
-mod effects;
-mod entity;
-mod game;
-mod input;
-mod instance;
-mod levels;
-mod pathfinding;
-mod player;
-mod progress;
-mod race;
 mod renderer;
-mod rng;
-mod robot;
-mod screens;
-mod sound;
-mod sprites;
-mod text;
-mod vec2;
-mod viewport;
 
 use std::time::Instant;
 
@@ -34,15 +10,17 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use atlas::Atlas;
 use audio::Audio;
-use board::DT;
-use draw::{Color, Painter};
-use game::{Game, ScreenKind};
-use input::{Key, Tap};
+use furious_core::atlas::{self, Atlas};
+use furious_core::bench::{report_json, stress_quads};
+use furious_core::board::DT;
+use furious_core::draw::Painter;
+use furious_core::game::{Game, ScreenKind};
+use furious_core::input::{Key, Tap};
+use furious_core::rng::Rng;
+use furious_core::viewport::Letterbox;
+use furious_core::{levels, progress};
 use renderer::Renderer;
-use rng::Rng;
-use viewport::Letterbox;
 
 const TITLE: &str = "Furious Snake (Rust)";
 const WARMUP_SECS: f64 = 2.0;
@@ -58,21 +36,6 @@ struct Config {
     mute: bool,
     screenshot: Option<(String, ScreenKind)>,
     after_ms: f64,
-}
-
-fn fract(v: f32) -> f32 {
-    v - v.floor()
-}
-
-/// Bench stress quads (see SPEC.md), written after the scene.
-fn stress_quads(p: &mut Painter, n: usize, t: f32) {
-    for i in 0..n {
-        let fi = i as f32;
-        let x = fract(fi * 0.618_034 + t * 0.10) * 1200.0;
-        let y = fract(fi * 0.754_877_7 + t * 0.07 + 0.05 * (t + fi * 0.001).sin()) * 800.0;
-        let color: Color = [fract(fi * 0.13), fract(fi * 0.37), fract(fi * 0.71), 0.6];
-        p.solid(x as f64, y as f64, 4.8, 4.8, color);
-    }
 }
 
 struct App {
@@ -228,30 +191,10 @@ impl App {
     }
 
     fn report(&self, present_mode: &str, gpu: &str) {
-        let mut v = self.frame_times.clone();
-        let n = v.len();
-        if n == 0 {
-            eprintln!("no frames measured");
-            return;
+        match report_json("rust", present_mode, "", self.cfg.quads, self.cfg.seconds, &self.frame_times, gpu) {
+            Some(line) => println!("{line}"),
+            None => eprintln!("no frames measured"),
         }
-        let sum: f64 = v.iter().sum();
-        let avg_ms = sum / n as f64;
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let p99_idx = (((0.99 * n as f64).ceil() as usize).max(1) - 1).min(n - 1);
-        let worst = ((n as f64 * 0.01).floor() as usize).max(1);
-        let worst_mean = v[n - worst..].iter().sum::<f64>() / worst as f64;
-        println!(
-            "{{\"impl\":\"rust\",\"present_mode\":\"{}\",\"quads\":{},\"seconds\":{},\"frames\":{},\"avg_fps\":{:.2},\"p1_low_fps\":{:.2},\"avg_ms\":{:.2},\"p99_ms\":{:.2},\"gpu\":\"{}\"}}",
-            present_mode,
-            self.cfg.quads,
-            self.cfg.seconds,
-            n,
-            1000.0 / avg_ms,
-            1000.0 / worst_mean,
-            avg_ms,
-            v[p99_idx],
-            gpu.replace('\\', "\\\\").replace('"', "\\\"")
-        );
     }
 }
 
